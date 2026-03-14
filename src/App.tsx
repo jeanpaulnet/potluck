@@ -48,7 +48,7 @@ import {
   Key,
   ExternalLink
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 // --- Types ---
 declare global {
@@ -143,6 +143,8 @@ interface Dish {
 interface Potluck {
   id: string;
   title: string;
+  description?: string;
+  totalPeople?: number;
   ownerId: string;
   createdAt: Timestamp;
   guests: Guest[];
@@ -271,6 +273,10 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
   };
 
   const handleGenerate = async () => {
+    if (!dishName) {
+      setGenError("Please provide a dish name first.");
+      return;
+    }
     setIsGenerating(true);
     setGenError(null);
     try {
@@ -283,8 +289,10 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
       });
       
       let found = false;
-      if (response.candidates?.[0]?.content?.parts) {
-        for (const part of response.candidates[0].content.parts) {
+      const candidate = response.candidates?.[0];
+      
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
           if (part.inlineData) {
             const imageUrl = `data:image/png;base64,${part.inlineData.data}`;
             onSelect(imageUrl);
@@ -296,11 +304,16 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
       }
       
       if (!found) {
-        setGenError("No image was generated. Please try a different dish name.");
+        const finishReason = candidate?.finishReason;
+        if (finishReason === 'SAFETY') {
+          setGenError("The image generation was blocked by safety filters. Try a different description.");
+        } else {
+          setGenError("No image was generated. Please try again.");
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating image:', error);
-      setGenError("Failed to generate image. Please check your connection or try again later.");
+      setGenError(error?.message || "Failed to generate image. Please try again later.");
     } finally {
       setIsGenerating(false);
     }
@@ -374,35 +387,9 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
               </button>
             </div>
           </form>
-
-          {/* Google Search URL */}
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Google Search URL</label>
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                readOnly
-                value={`https://www.google.com/search?q=${encodeURIComponent(dishName)}&udm=2`}
-                className="flex-1 px-4 py-3 bg-zinc-100 border border-black/5 rounded-xl text-zinc-500 text-sm overflow-hidden text-ellipsis whitespace-nowrap"
-                onClick={(e) => (e.target as HTMLInputElement).select()}
-              />
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(`https://www.google.com/search?q=${encodeURIComponent(dishName)}&udm=2`);
-                }}
-                className="p-3 bg-white border border-black/5 text-zinc-600 rounded-xl hover:bg-zinc-50 transition-all shadow-sm"
-                title="Copy URL"
-              >
-                <Copy size={18} />
-              </button>
-            </div>
-          </div>
         </div>
 
-        <div className="px-6 py-4 bg-zinc-50 border-t border-black/5 flex items-center justify-between">
-          <p className="text-[10px] text-zinc-400 max-w-[70%]">
-            Paste an image URL directly or use the search link above to find one.
-          </p>
+        <div className="px-6 py-4 bg-zinc-50 border-t border-black/5 flex items-center justify-end">
           <button 
             onClick={onClose}
             className="px-4 py-2 text-sm font-bold text-zinc-600 hover:text-zinc-900 transition-colors"
@@ -435,7 +422,7 @@ const Navbar = ({ user }: { user: User | null }) => {
   };
 
   return (
-    <nav className="flex items-center justify-between px-6 py-4 bg-white border-b border-black/5 sticky top-0 z-50">
+    <nav className="flex items-center justify-between px-6 py-4 bg-zinc-100 border-b border-black/5 sticky top-0 z-50">
       <Link to="/" className="text-xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
         <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white">
           <Utensils size={18} />
@@ -471,6 +458,7 @@ const Navbar = ({ user }: { user: User | null }) => {
 const HomePage = ({ user }: { user: User | null }) => {
   const [potlucks, setPotlucks] = useState<Potluck[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -506,6 +494,8 @@ const HomePage = ({ user }: { user: User | null }) => {
     const newPotluck: Potluck = {
       id,
       title: "New Potluck",
+      description: "",
+      totalPeople: 10,
       ownerId: user.uid,
       createdAt: Timestamp.now(),
       guests: [],
@@ -517,6 +507,15 @@ const HomePage = ({ user }: { user: User | null }) => {
       navigate(`/potluck/${id}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `potlucks/${id}`);
+    }
+  };
+
+  const deletePotluck = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'potlucks', id));
+      setDeleteConfirmId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `potlucks/${id}`);
     }
   };
 
@@ -548,9 +547,21 @@ const HomePage = ({ user }: { user: User | null }) => {
               layoutId={p.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="group bg-white border border-black/5 rounded-3xl p-6 hover:shadow-xl hover:shadow-emerald-500/5 transition-all cursor-pointer relative overflow-hidden"
+              className="group bg-zinc-100 border border-black/5 rounded-3xl p-6 hover:shadow-xl hover:shadow-emerald-500/5 transition-all cursor-pointer relative overflow-hidden"
               onClick={() => navigate(`/potluck/${p.id}`)}
             >
+              {user?.uid === p.ownerId && (
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteConfirmId(p.id);
+                  }}
+                  className="absolute top-4 right-4 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md opacity-30 group-hover:opacity-100 transition-all hover:bg-red-600 z-10"
+                  title="Delete potluck"
+                >
+                  <X size={14} strokeWidth={3} />
+                </button>
+              )}
               <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 <ChevronRight className="text-zinc-400" />
               </div>
@@ -601,7 +612,201 @@ const HomePage = ({ user }: { user: User | null }) => {
           )}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6"
+            onClick={() => setDeleteConfirmId(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-zinc-900 text-center mb-2">Delete Potluck?</h3>
+              <p className="text-zinc-500 text-center mb-8">
+                This will permanently remove this potluck and all its data. This action cannot be undone.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={() => deletePotluck(deleteConfirmId)}
+                  className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-200"
+                >
+                  Yes, Delete Potluck
+                </button>
+                <button 
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="w-full py-4 bg-zinc-100 text-zinc-600 rounded-2xl font-bold hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+};
+
+interface DishItemProps {
+  dish: Dish;
+  canEdit: boolean;
+  potluck: Potluck;
+  updateDish: (id: string, updates: Partial<Dish>) => void;
+  toggleOwner: (dishId: string, guestId: string) => void;
+  openImageSearch: (dish: Dish) => void;
+  setDeleteConfirmId: (id: string | null) => void;
+  handleSave: (updatedPotluck?: any) => Promise<void>;
+}
+
+const DishItem: React.FC<DishItemProps> = ({ 
+  dish, 
+  canEdit, 
+  potluck, 
+  updateDish, 
+  toggleOwner, 
+  openImageSearch, 
+  setDeleteConfirmId, 
+  handleSave 
+}) => {
+  const controls = useDragControls();
+
+  return (
+    <Reorder.Item 
+      value={dish}
+      dragControls={controls}
+      dragListener={false}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="bg-zinc-200 border border-black/10 rounded-2xl p-6 pl-10 relative group"
+    >
+      {canEdit && (
+        <div 
+          onPointerDown={(e) => controls.start(e)}
+          className="absolute top-1/2 -translate-y-1/2 left-3 p-2 text-zinc-400 cursor-grab active:cursor-grabbing hover:text-zinc-600 transition-colors z-20"
+        >
+          <div className="grid grid-cols-2 gap-1">
+            <div className="w-1.5 h-1.5 bg-current rounded-full opacity-60" />
+            <div className="w-1.5 h-1.5 bg-current rounded-full opacity-60" />
+            <div className="w-1.5 h-1.5 bg-current rounded-full opacity-60" />
+            <div className="w-1.5 h-1.5 bg-current rounded-full opacity-60" />
+          </div>
+        </div>
+      )}
+      {canEdit && (
+        <button 
+          onClick={() => setDeleteConfirmId(dish.id)}
+          className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md opacity-30 group-hover:opacity-100 transition-all hover:bg-red-600 z-10"
+          title="Delete dish"
+        >
+          <X size={14} strokeWidth={3} />
+        </button>
+      )}
+      
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row gap-4 items-center">
+          <div 
+            className="w-[48px] h-[48px] rounded-xl flex-shrink-0 shadow-sm border border-black/5 overflow-hidden cursor-pointer group/img relative"
+            style={{ backgroundColor: !dish.imageUrl ? (dish.color || '#E5E7EB') : 'transparent' }}
+            onClick={() => openImageSearch(dish)}
+            title={canEdit ? "Click to set image" : ""}
+          >
+            {dish.imageUrl ? (
+              <img 
+                src={dish.imageUrl} 
+                alt={dish.name} 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-white/50">
+                <ImageIcon size={20} />
+              </div>
+            )}
+            
+            {canEdit && (
+              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                <Plus size={16} className="text-white" />
+              </div>
+            )}
+          </div>
+          <div className="flex-1 flex flex-row gap-4 w-full">
+          <div className="flex-1">
+            {canEdit ? (
+              <input 
+                type="text" 
+                value={dish.name}
+                placeholder="Dish Name"
+                onChange={(e) => updateDish(dish.id, { name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSave();
+                    e.currentTarget.blur();
+                  }
+                }}
+                onBlur={() => handleSave()}
+                className="w-full px-3 py-1.5 bg-zinc-50 border border-transparent rounded-xl focus:border-green-500 focus:outline-none transition-all font-semibold text-zinc-900 text-sm"
+              />
+            ) : (
+              <div className="font-semibold text-zinc-900 text-sm">{dish.name || "Unnamed Dish"}</div>
+            )}
+          </div>
+          <div className="w-20 md:w-24 relative group/tooltip">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
+              Number of servings
+            </div>
+            {canEdit ? (
+              <input 
+                type="number" 
+                value={dish.count}
+                onChange={(e) => updateDish(dish.id, { count: parseInt(e.target.value) || 0 })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSave();
+                    e.currentTarget.blur();
+                  }
+                }}
+                onBlur={() => handleSave()}
+                title="Number of servings"
+                className="w-full px-3 py-1.5 bg-zinc-50 border border-transparent rounded-xl focus:border-green-500 focus:outline-none transition-all font-medium text-zinc-900 text-sm"
+              />
+            ) : (
+              <div className="font-medium text-zinc-700 text-sm">{dish.count} servings</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div className="flex flex-wrap gap-2 pt-2 border-t border-black/5">
+        {potluck.guests.map((guest) => (
+          <button
+            key={guest.id}
+            disabled={!canEdit}
+            onClick={() => toggleOwner(dish.id, guest.id)}
+            className={`px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
+              dish.ownerIds.includes(guest.id)
+                ? 'bg-green-500 text-white shadow-sm'
+                : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
+            } ${!canEdit ? 'cursor-default' : ''}`}
+          >
+            {guest.name || "Guest"}
+          </button>
+        ))}
+      </div>
+    </Reorder.Item>
   );
 };
 
@@ -615,11 +820,14 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const [urlEditId, setUrlEditId] = useState<string | null>(null);
   const [tempUrl, setTempUrl] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
   const [activeDishForSearch, setActiveDishForSearch] = useState<Dish | null>(null);
 
   const isOwner = user?.uid === potluck?.ownerId;
   const canEdit = true;
+
+
 
   const logHistory = async (action: string) => {
     if (!id) return;
@@ -651,8 +859,11 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     return () => unsubscribe();
   }, [id]);
 
-  const handleSave = async (updatedPotluck?: Potluck) => {
-    const potluckToSave = updatedPotluck || potluck;
+  const handleSave = async (updatedPotluck?: Potluck | any) => {
+    // If updatedPotluck is an event (from onBlur), ignore it and use current state
+    const isPotluck = updatedPotluck && typeof updatedPotluck === 'object' && 'dishes' in updatedPotluck;
+    const potluckToSave = isPotluck ? updatedPotluck : potluck;
+    
     if (!potluckToSave || !id) return;
     setIsSaving(true);
     try {
@@ -663,6 +874,13 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
       handleFirestoreError(error, OperationType.UPDATE, `potlucks/${id}`);
       setIsSaving(false);
     }
+  };
+
+  const handleReorderDishes = (newDishes: Dish[]) => {
+    if (!potluck) return;
+    const updated = { ...potluck, dishes: newDishes };
+    setPotluck(updated);
+    handleSave(updated);
   };
 
   const handleDelete = async () => {
@@ -759,7 +977,15 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     handleSave(updated);
   };
 
-  const handleUrlSubmit = (url: string) => {
+  const handleUrlSubmit = (e: React.FormEvent | string) => {
+    let url: string;
+    if (typeof e === 'string') {
+      url = e;
+    } else {
+      e.preventDefault();
+      url = tempUrl;
+    }
+
     if (activeDishForSearch && potluck) {
       const updated = {
         ...potluck,
@@ -767,9 +993,18 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
       };
       setPotluck(updated);
       setImageSearchOpen(false);
-      setActiveDishForSearch(null);
       handleSave(updated);
       logHistory(`Updated image for dish: ${activeDishForSearch.name || "Unnamed"}`);
+      setActiveDishForSearch(null);
+    } else if (urlEditId && potluck) {
+      const updated = {
+        ...potluck,
+        dishes: potluck.dishes.map(d => d.id === urlEditId ? { ...d, imageUrl: url } : d)
+      };
+      setPotluck(updated);
+      setUrlEditId(null);
+      setTempUrl("");
+      handleSave(updated);
     }
   };
 
@@ -802,22 +1037,53 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
           </Link>
           <div className="flex items-center gap-4">
             {canEdit ? (
-              <input 
-                type="text" 
-                value={potluck.title}
-                onChange={(e) => setPotluck({ ...potluck, title: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleSave();
-                    e.currentTarget.blur();
-                  }
-                }}
-                onBlur={handleSave}
-                className="text-4xl font-bold tracking-tight text-zinc-900 bg-transparent border-b-2 border-transparent hover:border-zinc-200 focus:border-emerald-500 focus:outline-none transition-all w-full"
-              />
+              <div className="flex-1 space-y-2">
+                <input 
+                  type="text" 
+                  value={potluck.title}
+                  onChange={(e) => setPotluck({ ...potluck, title: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSave();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={() => handleSave()}
+                  className="text-4xl font-bold tracking-tight text-zinc-900 bg-transparent border-b-2 border-transparent hover:border-zinc-200 focus:border-emerald-500 focus:outline-none transition-all w-full"
+                />
+                <textarea 
+                  value={potluck.description || ""}
+                  placeholder="Add a description..."
+                  onChange={(e) => setPotluck({ ...potluck, description: e.target.value })}
+                  onBlur={() => handleSave()}
+                  className="w-full bg-transparent text-zinc-500 text-sm resize-none focus:outline-none border-b border-transparent hover:border-zinc-200 focus:border-emerald-500 transition-all py-1"
+                  rows={1}
+                />
+              </div>
             ) : (
-              <h1 className="text-4xl font-bold tracking-tight text-zinc-900">{potluck.title}</h1>
+              <div className="flex-1 space-y-1">
+                <h1 className="text-4xl font-bold tracking-tight text-zinc-900">{potluck.title}</h1>
+                {potluck.description && <p className="text-zinc-500 text-sm">{potluck.description}</p>}
+              </div>
             )}
+            <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-blue-50 border border-blue-100 rounded-xl min-w-[40px] relative group/tooltip">
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
+                Total number of people attending
+              </div>
+              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total People</span>
+              {canEdit ? (
+                <input 
+                  type="number"
+                  value={potluck.totalPeople || 0}
+                  onChange={(e) => setPotluck({ ...potluck, totalPeople: parseInt(e.target.value) || 0 })}
+                  onBlur={() => handleSave()}
+                  title="Total number of people attending"
+                  className="text-xl font-black text-blue-700 bg-transparent w-full text-center focus:outline-none"
+                />
+              ) : (
+                <span className="text-xl font-black text-blue-700">{potluck.totalPeople || 0}</span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -855,137 +1121,57 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
       <div className="flex flex-col gap-8">
         {/* Dishes Section */}
         <div className="w-full">
-          <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-sm">
-            <div className="px-6 py-5 border-b border-black/5 bg-zinc-50/50 flex items-center justify-between">
+          <div className="bg-zinc-100 border border-black/5 rounded-3xl overflow-hidden shadow-sm">
+            <div className="px-6 py-5 border-b border-black/5 bg-zinc-200 flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-zinc-900">
-                <Utensils size={20} className="text-emerald-500" />
-                Dishes & Items ({potluck.dishes.length})
+                <Utensils size={20} className="text-green-500" />
+                Dishes ({potluck.dishes.length})
               </div>
               {canEdit && (
                 <button 
                   onClick={addDish}
-                  className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all"
+                  className="p-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all"
                 >
                   <Plus size={16} />
                 </button>
               )}
             </div>
-            <div className="p-6 space-y-8">
-              <AnimatePresence initial={false}>
-                {potluck.dishes.map((dish) => (
-                  <motion.div 
-                    key={dish.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="bg-zinc-50/50 border border-black/5 rounded-2xl p-6 relative group"
-                  >
-                    {canEdit && (
-                      <button 
-                        onClick={() => removeDish(dish.id)}
-                        className="absolute top-4 right-4 p-2 text-zinc-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    )}
-                    
-                    <div className="flex flex-col gap-4">
-                      <div className="flex flex-col md:flex-row gap-4 items-center">
-                        <div 
-                          className="w-[48px] h-[48px] rounded-xl flex-shrink-0 shadow-sm border border-black/5 overflow-hidden cursor-pointer group/img relative"
-                          style={{ backgroundColor: !dish.imageUrl ? (dish.color || '#E5E7EB') : 'transparent' }}
-                          onClick={() => openImageSearch(dish)}
-                          title={canEdit ? "Click to set image" : ""}
-                        >
-                          {dish.imageUrl ? (
-                            <img 
-                              src={dish.imageUrl} 
-                              alt={dish.name} 
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-white/50">
-                              <ImageIcon size={20} />
-                            </div>
-                          )}
-                          
-                          {canEdit && (
-                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                              <Plus size={16} className="text-white" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 flex flex-col md:flex-row gap-4 w-full">
-                        <div className="flex-1">
-                          {canEdit ? (
-                            <input 
-                              type="text" 
-                              value={dish.name}
-                              placeholder="Dish Name"
-                              onChange={(e) => updateDish(dish.id, { name: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleSave();
-                                  e.currentTarget.blur();
-                                }
-                              }}
-                              onBlur={handleSave}
-                              className="w-full px-3 py-1.5 bg-white border border-transparent rounded-xl focus:border-emerald-500 focus:outline-none transition-all font-semibold text-zinc-900"
-                            />
-                          ) : (
-                            <div className="font-semibold text-zinc-900">{dish.name || "Unnamed Dish"}</div>
-                          )}
-                        </div>
-                        <div className="w-full md:w-24 relative group/tooltip">
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
-                            Number of servings
-                          </div>
-                          {canEdit ? (
-                            <input 
-                              type="number" 
-                              value={dish.count}
-                              onChange={(e) => updateDish(dish.id, { count: parseInt(e.target.value) || 0 })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleSave();
-                                  e.currentTarget.blur();
-                                }
-                              }}
-                              onBlur={handleSave}
-                              className="w-full px-3 py-1.5 bg-white border border-transparent rounded-xl focus:border-emerald-500 focus:outline-none transition-all font-medium text-zinc-900 text-sm"
-                            />
-                          ) : (
-                            <div className="font-medium text-zinc-700 text-sm">{dish.count} servings</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-black/5">
-                        {potluck.guests.map((guest) => (
-                          <button
-                            key={guest.id}
-                            disabled={!canEdit}
-                            onClick={() => toggleOwner(dish.id, guest.id)}
-                            className={`px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
-                              dish.ownerIds.includes(guest.id)
-                                ? 'bg-emerald-500 text-white shadow-sm'
-                                : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
-                            } ${!canEdit ? 'cursor-default' : ''}`}
-                          >
-                            {guest.name || "Guest"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+            <div className="p-6">
+              <Reorder.Group 
+                axis="y" 
+                values={potluck.dishes} 
+                onReorder={handleReorderDishes}
+                className="space-y-8"
+              >
+                <AnimatePresence initial={false}>
+                  {potluck.dishes.map((dish) => (
+                    <DishItem 
+                      key={dish.id}
+                      dish={dish}
+                      canEdit={canEdit}
+                      potluck={potluck}
+                      updateDish={updateDish}
+                      toggleOwner={toggleOwner}
+                      openImageSearch={openImageSearch}
+                      setDeleteConfirmId={setDeleteConfirmId}
+                      handleSave={handleSave}
+                    />
+                  ))}
+                </AnimatePresence>
+              </Reorder.Group>
               {potluck.dishes.length === 0 && (
-                <div className="text-center py-12 bg-zinc-50/50 rounded-2xl border-2 border-dashed border-zinc-200">
+                  <div className="text-center py-12 bg-zinc-100 rounded-2xl border-2 border-dashed border-zinc-300">
                   <p className="text-zinc-400 text-sm">No dishes added yet.</p>
                 </div>
+              )}
+              {canEdit && (
+                <button 
+                  onClick={addDish}
+                  className="w-full py-4 mt-4 border-2 border-dashed border-zinc-300 rounded-2xl text-zinc-400 hover:text-green-500 hover:border-green-500 hover:bg-green-50/50 transition-all flex items-center justify-center gap-2 font-medium"
+                >
+                  <Plus size={20} />
+                  Add Another Dish
+                </button>
               )}
             </div>
           </div>
@@ -993,16 +1179,16 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
 
         {/* Guests Section */}
         <div className="w-full">
-          <div className="bg-white border border-black/5 rounded-3xl overflow-hidden shadow-sm">
-            <div className="px-6 py-5 border-b border-black/5 bg-zinc-50/50 flex items-center justify-between">
+          <div className="bg-zinc-100 border border-black/5 rounded-3xl overflow-hidden shadow-sm">
+            <div className="px-6 py-5 border-b border-black/5 bg-zinc-200 flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-zinc-900">
-                <Users size={20} className="text-emerald-500" />
+                <Users size={20} className="text-purple-500" />
                 Guests ({potluck.guests.length})
               </div>
               {canEdit && (
                 <button 
                   onClick={addGuest}
-                  className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all"
+                  className="p-1.5 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all"
                 >
                   <Plus size={16} />
                 </button>
@@ -1021,7 +1207,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                     {canEdit ? (
                       <>
                         <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
-                          <div className="w-10 h-10 rounded-xl flex-shrink-0 border border-black/5 bg-zinc-100 flex items-center justify-center text-zinc-400">
+                          <div className="w-10 h-10 rounded-xl flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500">
                             <Users size={16} />
                           </div>
                           <div className="relative min-w-[120px]">
@@ -1037,8 +1223,8 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                                   e.currentTarget.blur();
                                 }
                               }}
-                              onBlur={handleSave}
-                              className="absolute inset-0 w-full px-4 py-2 bg-zinc-50 border border-transparent rounded-xl focus:bg-white focus:border-emerald-500 focus:outline-none transition-all"
+                              onBlur={() => handleSave()}
+                              className="absolute inset-0 w-full px-4 py-2 bg-zinc-200 border border-transparent rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition-all"
                             />
                           </div>
                         </div>
@@ -1055,9 +1241,10 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                         </div>
                         <button 
                           onClick={() => removeGuest(guest.id)}
-                          className="p-2 text-zinc-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md opacity-30 group-hover:opacity-100 transition-all hover:bg-red-600 flex-shrink-0"
+                          title="Remove guest"
                         >
-                          <Trash2 size={16} />
+                          <X size={14} strokeWidth={3} />
                         </button>
                       </>
                     ) : (
@@ -1081,6 +1268,15 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               </AnimatePresence>
               {potluck.guests.length === 0 && (
                 <p className="text-center text-zinc-400 py-4 text-sm italic">No guests added yet.</p>
+              )}
+              {canEdit && (
+                <button 
+                  onClick={addGuest}
+                  className="w-full py-4 mt-4 border-2 border-dashed border-zinc-300 rounded-2xl text-zinc-400 hover:text-purple-500 hover:border-purple-500 hover:bg-purple-50/50 transition-all flex items-center justify-center gap-2 font-medium"
+                >
+                  <Plus size={20} />
+                  Add Another Guest
+                </button>
               )}
             </div>
           </div>
@@ -1114,7 +1310,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                     value={tempUrl}
                     onChange={(e) => setTempUrl(e.target.value)}
                     placeholder="https://example.com/image.jpg"
-                    className="w-full px-4 py-2 bg-zinc-50 border border-transparent rounded-xl focus:bg-white focus:border-emerald-500 focus:outline-none transition-all"
+                    className="w-full px-4 py-2 bg-zinc-50 border border-transparent rounded-xl focus:bg-white focus:border-green-500 focus:outline-none transition-all"
                   />
                 </div>
                 <div className="flex gap-3">
@@ -1154,6 +1350,42 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         dishName={activeDishForSearch?.name || ""}
         onSelect={handleUrlSubmit}
       />
+
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-zinc-900 mb-2">Delete this dish?</h3>
+              <p className="text-zinc-500 mb-8">This action cannot be undone. Are you sure you want to remove this from the potluck?</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="flex-1 px-6 py-3 bg-zinc-100 text-zinc-600 font-bold rounded-2xl hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    removeDish(deleteConfirmId);
+                    setDeleteConfirmId(null);
+                  }}
+                  className="flex-1 px-6 py-3 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -1180,7 +1412,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Router>
-        <div className="min-h-screen bg-[#FBFBFB] font-sans text-zinc-900">
+        <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900">
           <Navbar user={user} />
           <main>
             <Routes>
