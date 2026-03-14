@@ -1382,7 +1382,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         onClose={() => setHistoryOpen(false)}
         potluckId={id || ""}
         onRestore={handleRestore}
-        canEdit={canEdit}
+        canEdit={isOwner}
       />
 
       <ImageSearchModal 
