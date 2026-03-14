@@ -11,6 +11,29 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Proxy for external potluck save API
+  app.post("/api/external-save/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const { Id, Content } = req.body;
+    
+    console.log(`Forwarding save for potluck ${Id} and user ${userId} to external API`);
+    
+    try {
+      const response = await fetch(`https://webapi.tyzenr.com/potluck/save/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Id, Content })
+      });
+      
+      const status = response.status;
+      console.log(`External API responded with status: ${status}`);
+      res.status(status).json({ success: response.ok });
+    } catch (error) {
+      console.error("External API error:", error);
+      res.status(500).json({ error: "Failed to call external API" });
+    }
+  });
+
   // Request logging
   app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);

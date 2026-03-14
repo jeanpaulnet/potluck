@@ -47,6 +47,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
+import { APP_VERSION } from './version';
 
 // --- Types ---
 
@@ -361,6 +362,24 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, currentUrl, onSelect }: I
   );
 };
 
+// --- Helpers ---
+
+const saveToExternalApi = async (user: User | null, potluckId: string, potluckData: Potluck) => {
+  if (!user) return;
+  try {
+    await fetch(`/api/external-save/${user.uid}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        Id: potluckId,
+        Content: JSON.stringify(potluckData)
+      })
+    });
+  } catch (err) {
+    console.error("External API proxy error:", err);
+  }
+};
+
 // --- Components ---
 
 const Navbar = ({ user }: { user: User | null }) => {
@@ -386,7 +405,7 @@ const Navbar = ({ user }: { user: User | null }) => {
         <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white">
           <Utensils size={18} />
         </div>
-        Potluck Planner
+        Potluck Planner <span className="text-xs font-normal text-zinc-400 ml-1">v{APP_VERSION}</span>
       </Link>
       <div className="flex items-center gap-4">
         {user ? (
@@ -463,6 +482,7 @@ const HomePage = ({ user }: { user: User | null }) => {
 
     try {
       await setDoc(doc(db, 'potlucks', id), newPotluck);
+      await saveToExternalApi(user, id, newPotluck);
       navigate(`/potluck/${id}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `potlucks/${id}`);
@@ -482,7 +502,9 @@ const HomePage = ({ user }: { user: User | null }) => {
     <div className="max-w-5xl mx-auto px-6 py-12">
       <div className="flex items-center justify-between mb-12">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-zinc-900 mb-2">Your Potlucks</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-zinc-900 mb-2">
+            Your Potlucks
+          </h1>
           <p className="text-zinc-500">Coordinate meals and guests with ease.</p>
         </div>
         <button 
@@ -895,6 +917,12 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const [deleteType, setDeleteType] = useState<'dish' | 'guest' | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
   const [activeDishForSearch, setActiveDishForSearch] = useState<Dish | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const potluckRef = React.useRef(potluck);
+
+  useEffect(() => {
+    potluckRef.current = potluck;
+  }, [potluck]);
 
   const isOwner = user?.uid === potluck?.ownerId;
   const canEdit = true;
@@ -943,17 +971,33 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const handleSave = async (updatedPotluck?: Potluck | any, action?: string) => {
     // If updatedPotluck is an event (from onBlur), ignore it and use current state
     const isPotluck = updatedPotluck && typeof updatedPotluck === 'object' && 'dishes' in updatedPotluck;
-    const potluckToSave = isPotluck ? updatedPotluck : potluck;
+    const potluckToSave = isPotluck ? updatedPotluck : potluckRef.current;
     
-    if (!potluckToSave || !id) return;
+    if (!potluckToSave || !id || !potluckToSave.title?.trim()) return;
     setIsSaving(true);
     try {
       await setDoc(doc(db, 'potlucks', id), potluckToSave);
+      
+      if (user) {
+        saveToExternalApi(user, id, potluckToSave);
+      }
+
       await logHistory(action || `Updated potluck: ${potluckToSave.title}`, potluckToSave);
       setIsSaving(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `potlucks/${id}`);
+      setSaveError(null);
+    } catch (error: any) {
+      console.error("Save error:", error);
       setIsSaving(false);
+      
+      // Check for quota exceeded or other common errors
+      if (error.code === 'resource-exhausted' || error.message?.includes('quota')) {
+        setSaveError("Your daily database limit has been reached. Changes cannot be saved until tomorrow.");
+      } else if (error.code === 'permission-denied') {
+        setSaveError("Permission denied. You may not have permission to edit this potluck.");
+        handleFirestoreError(error, OperationType.UPDATE, `potlucks/${id}`);
+      } else {
+        setSaveError(`An error occurred: ${error.message || "Please try again later."}`);
+      }
     }
   };
 
@@ -968,6 +1012,11 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         createdAt: potluck.createdAt
       };
       await setDoc(doc(db, 'potlucks', id), restoredPotluck);
+
+      if (user) {
+        saveToExternalApi(user, id, restoredPotluck);
+      }
+
       await logHistory(`Restored to version from history`, restoredPotluck);
       setIsSaving(false);
     } catch (error) {
@@ -1164,7 +1213,9 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               </div>
             ) : (
               <div className="flex-1 space-y-1">
-                <h1 className="text-4xl font-bold tracking-tight text-zinc-900">{potluck.title}</h1>
+                <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
+                  {potluck.title}
+                </h1>
                 {potluck.description && <p className="text-zinc-500 text-sm">{potluck.description}</p>}
               </div>
             )}
@@ -1450,6 +1501,34 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                   Delete
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Save Error Dialog */}
+      <AnimatePresence>
+        {saveError && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl"
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <X size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-zinc-900 text-center mb-2">An error occurred</h3>
+              <p className="text-zinc-500 text-center mb-8">
+                {saveError}
+              </p>
+              <button 
+                onClick={() => setSaveError(null)}
+                className="w-full px-6 py-3 bg-zinc-900 text-white font-bold rounded-2xl hover:bg-zinc-800 transition-all"
+              >
+                Dismiss
+              </button>
             </motion.div>
           </div>
         )}
