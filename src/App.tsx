@@ -621,6 +621,7 @@ const HomePage = ({ user }: { user: User | null }) => {
 interface DishItemProps {
   dish: Dish;
   canEdit: boolean;
+  isOwner: boolean;
   potluck: Potluck;
   updateDish: (id: string, updates: Partial<Dish>) => void;
   toggleOwner: (dishId: string, guestId: string) => void;
@@ -632,6 +633,7 @@ interface DishItemProps {
 const DishItem: React.FC<DishItemProps> = ({ 
   dish, 
   canEdit, 
+  isOwner,
   potluck, 
   updateDish, 
   toggleOwner, 
@@ -664,7 +666,7 @@ const DishItem: React.FC<DishItemProps> = ({
           </div>
         </div>
       )}
-      {canEdit && (
+      {isOwner && (
         <button 
           onClick={() => setDeleteConfirmId(dish.id)}
           className="absolute top-2 right-2 w-5 h-5 bg-red-400 text-white rounded-full flex items-center justify-center shadow-sm opacity-30 group-hover:opacity-100 transition-all hover:bg-red-500 z-10"
@@ -775,12 +777,14 @@ interface GuestItemProps {
   guest: Guest;
   potluck: Potluck;
   canEdit: boolean;
+  isOwner: boolean;
   updateGuest: (id: string, name: string) => void;
   removeGuest: (id: string) => void;
+  setDeleteConfirmId: (id: string | null) => void;
   handleSave: (updatedPotluck?: any, action?: string) => Promise<void>;
 }
 
-const GuestItem = ({ guest, potluck, canEdit, updateGuest, removeGuest, handleSave }: GuestItemProps) => {
+const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest, setDeleteConfirmId, handleSave }: GuestItemProps) => {
   const controls = useDragControls();
 
   return (
@@ -842,13 +846,15 @@ const GuestItem = ({ guest, potluck, canEdit, updateGuest, removeGuest, handleSa
               </div>
             ))}
           </div>
-          <button 
-            onClick={() => removeGuest(guest.id)}
-            className="w-5 h-5 bg-red-400 text-white rounded-full flex items-center justify-center shadow-sm opacity-30 group-hover:opacity-100 transition-all hover:bg-red-500 flex-shrink-0"
-            title="Remove guest"
-          >
-            <X size={14} strokeWidth={3} />
-          </button>
+          {isOwner && (
+            <button 
+              onClick={() => setDeleteConfirmId(guest.id)}
+              className="w-5 h-5 bg-red-400 text-white rounded-full flex items-center justify-center shadow-sm opacity-30 group-hover:opacity-100 transition-all hover:bg-red-500 flex-shrink-0"
+              title="Remove guest"
+            >
+              <X size={14} strokeWidth={3} />
+            </button>
+          )}
         </>
       ) : (
         <div className="flex-1 flex items-center justify-between gap-3 px-4 py-2 bg-zinc-50 rounded-xl min-w-0">
@@ -886,6 +892,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const [tempUrl, setTempUrl] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteType, setDeleteType] = useState<'dish' | 'guest' | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
   const [activeDishForSearch, setActiveDishForSearch] = useState<Dish | null>(null);
 
@@ -1244,11 +1251,15 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                       key={dish.id}
                       dish={dish}
                       canEdit={canEdit}
+                      isOwner={isOwner}
                       potluck={potluck}
                       updateDish={updateDish}
                       toggleOwner={toggleOwner}
                       openImageSearch={openImageSearch}
-                      setDeleteConfirmId={setDeleteConfirmId}
+                      setDeleteConfirmId={(id) => {
+                        setDeleteConfirmId(id);
+                        setDeleteType(id ? 'dish' : null);
+                      }}
                       handleSave={handleSave}
                     />
                   ))}
@@ -1298,8 +1309,13 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                       guest={guest}
                       potluck={potluck}
                       canEdit={canEdit}
+                      isOwner={isOwner}
                       updateGuest={updateGuest}
                       removeGuest={removeGuest}
+                      setDeleteConfirmId={(id) => {
+                        setDeleteConfirmId(id);
+                        setDeleteType(id ? 'guest' : null);
+                      }}
                       handleSave={handleSave}
                     />
                   ))}
@@ -1405,19 +1421,29 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Trash2 size={32} />
               </div>
-              <h3 className="text-xl font-bold text-zinc-900 mb-2">Delete this dish?</h3>
+              <h3 className="text-xl font-bold text-zinc-900 mb-2">Delete this {deleteType}?</h3>
               <p className="text-zinc-500 mb-8">This action cannot be undone. Are you sure you want to remove this from the potluck?</p>
               <div className="flex gap-3">
                 <button 
-                  onClick={() => setDeleteConfirmId(null)}
+                  onClick={() => {
+                    setDeleteConfirmId(null);
+                    setDeleteType(null);
+                  }}
                   className="flex-1 px-6 py-3 bg-zinc-100 text-zinc-600 font-bold rounded-2xl hover:bg-zinc-200 transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={() => {
-                    removeDish(deleteConfirmId);
+                    if (deleteConfirmId) {
+                      if (deleteType === 'dish') {
+                        removeDish(deleteConfirmId);
+                      } else if (deleteType === 'guest') {
+                        removeGuest(deleteConfirmId);
+                      }
+                    }
                     setDeleteConfirmId(null);
+                    setDeleteType(null);
                   }}
                   className="flex-1 px-6 py-3 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
                 >
