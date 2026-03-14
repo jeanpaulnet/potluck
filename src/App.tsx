@@ -27,7 +27,6 @@ import {
   addDoc,
   serverTimestamp
 } from 'firebase/firestore';
-import { getGenAIInstance } from './services/geminiService';
 import { 
   Plus, 
   Trash2, 
@@ -45,20 +44,13 @@ import {
   X,
   History,
   Search,
-  Key,
-  ExternalLink
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
+import { GoogleGenAI } from "@google/genai";
 
 // --- Types ---
-declare global {
-  interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
-}
 
 // --- Error Boundary ---
 
@@ -129,6 +121,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 interface Guest {
   id: string;
   name: string;
+  imageUrl?: string;
 }
 
 interface Dish {
@@ -157,6 +150,7 @@ interface HistoryEntry {
   userName: string;
   action: string;
   timestamp: Timestamp;
+  snapshot?: Partial<Potluck>;
 }
 
 // --- History Modal ---
@@ -165,9 +159,11 @@ interface HistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   potluckId: string;
+  onRestore: (snapshot: Partial<Potluck>) => void;
+  canEdit: boolean;
 }
 
-const HistoryModal = ({ isOpen, onClose, potluckId }: HistoryModalProps) => {
+const HistoryModal = ({ isOpen, onClose, potluckId, onRestore, canEdit }: HistoryModalProps) => {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -232,13 +228,32 @@ const HistoryModal = ({ isOpen, onClose, potluckId }: HistoryModalProps) => {
                     {entry.userName?.charAt(0) || entry.userId.charAt(0)}
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-zinc-900 text-sm">{entry.userName || "Unknown User"}</span>
-                      <span className="text-[10px] text-zinc-400">
-                        {entry.timestamp?.toDate().toLocaleString() || "Just now"}
-                      </span>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold text-zinc-900 text-sm">{entry.userName || "Unknown User"}</span>
+                          <span className="text-[10px] text-zinc-400">
+                            {entry.timestamp?.toDate().toLocaleString() || "Just now"}
+                          </span>
+                        </div>
+                        <p className="text-zinc-600 text-sm leading-relaxed">{entry.action}</p>
+                      </div>
+                      {canEdit && entry.snapshot && (
+                        <button 
+                          onClick={() => {
+                            if (window.confirm("Restore this version? Current changes will be saved to history.")) {
+                              onRestore(entry.snapshot!);
+                              onClose();
+                            }
+                          }}
+                          className="flex-shrink-0 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1"
+                          title="Restore this version"
+                        >
+                          <Save size={12} />
+                          Restore
+                        </button>
+                      )}
                     </div>
-                    <p className="text-zinc-600 text-sm leading-relaxed">{entry.action}</p>
                   </div>
                 </div>
               ))}
@@ -256,66 +271,24 @@ interface ImageSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   dishName: string;
+  currentUrl: string;
   onSelect: (url: string) => void;
 }
 
-const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchModalProps) => {
+const ImageSearchModal = ({ isOpen, onClose, dishName, currentUrl, onSelect }: ImageSearchModalProps) => {
   const [manualUrl, setManualUrl] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setManualUrl(currentUrl || "");
+    }
+  }, [isOpen, currentUrl]);
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (manualUrl) {
       onSelect(manualUrl);
       setManualUrl("");
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!dishName) {
-      setGenError("Please provide a dish name first.");
-      return;
-    }
-    setIsGenerating(true);
-    setGenError(null);
-    try {
-      const ai = await getGenAIInstance();
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: `A high-quality, appetizing photo of ${dishName} on a clean background, professional food photography style.` }]
-        }
-      });
-      
-      let found = false;
-      const candidate = response.candidates?.[0];
-      
-      if (candidate?.content?.parts) {
-        for (const part of candidate.content.parts) {
-          if (part.inlineData) {
-            const imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-            onSelect(imageUrl);
-            onClose();
-            found = true;
-            break;
-          }
-        }
-      }
-      
-      if (!found) {
-        const finishReason = candidate?.finishReason;
-        if (finishReason === 'SAFETY') {
-          setGenError("The image generation was blocked by safety filters. Try a different description.");
-        } else {
-          setGenError("No image was generated. Please try again.");
-        }
-      }
-    } catch (error: any) {
-      console.error('Error generating image:', error);
-      setGenError(error?.message || "Failed to generate image. Please try again later.");
-    } finally {
-      setIsGenerating(false);
     }
   };
 
@@ -327,7 +300,7 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 20 }}
-        className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col"
       >
         <div className="px-6 py-5 border-b border-black/5 flex items-center justify-between bg-zinc-50">
           <div className="flex items-center gap-3">
@@ -344,46 +317,35 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1 space-y-8">
-          {/* AI Generation */}
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">AI Generation</label>
-            <button 
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isGenerating ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Search size={20} />
-                  Generate Image with AI
-                </>
-              )}
-            </button>
-            {genError && <p className="text-xs text-red-500 font-medium">{genError}</p>}
-          </div>
-
+        <div className="p-6 space-y-6">
           {/* Manual URL Input */}
           <form onSubmit={handleManualSubmit} className="space-y-3">
-            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Manual URL</label>
-            <div className="flex gap-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Image URL</label>
+              <a 
+                href={`https://www.google.com/search?q=${encodeURIComponent(dishName + ' food')}&tbm=isch`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-colors"
+              >
+                <Search size={10} />
+                Search on Google
+              </a>
+            </div>
+            <div className="flex flex-col gap-3">
               <input 
                 type="url" 
                 value={manualUrl}
                 onChange={(e) => setManualUrl(e.target.value)}
                 placeholder="https://example.com/image.jpg"
-                className="flex-1 px-4 py-3 bg-zinc-50 border border-black/5 rounded-xl focus:bg-white focus:border-emerald-500 focus:outline-none transition-all"
+                className="w-full px-4 py-3 bg-zinc-50 border border-black/5 rounded-xl focus:bg-white focus:border-emerald-500 focus:outline-none transition-all"
+                autoFocus
               />
               <button 
                 type="submit"
-                className="px-6 py-3 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 transition-all"
+                className="w-full py-3 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 transition-all"
               >
-                Set URL
+                Set Image URL
               </button>
             </div>
           </form>
@@ -394,7 +356,7 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, onSelect }: ImageSearchMo
             onClick={onClose}
             className="px-4 py-2 text-sm font-bold text-zinc-600 hover:text-zinc-900 transition-colors"
           >
-            Close
+            Cancel
           </button>
         </div>
       </motion.div>
@@ -556,7 +518,7 @@ const HomePage = ({ user }: { user: User | null }) => {
                     e.stopPropagation();
                     setDeleteConfirmId(p.id);
                   }}
-                  className="absolute top-4 right-4 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md opacity-30 group-hover:opacity-100 transition-all hover:bg-red-600 z-10"
+                  className="absolute top-2 right-2 w-5 h-5 bg-red-400 text-white rounded-full flex items-center justify-center shadow-sm opacity-30 group-hover:opacity-100 transition-all hover:bg-red-500 z-10"
                   title="Delete potluck"
                 >
                   <X size={14} strokeWidth={3} />
@@ -667,7 +629,7 @@ interface DishItemProps {
   toggleOwner: (dishId: string, guestId: string) => void;
   openImageSearch: (dish: Dish) => void;
   setDeleteConfirmId: (id: string | null) => void;
-  handleSave: (updatedPotluck?: any) => Promise<void>;
+  handleSave: (updatedPotluck?: any, action?: string) => Promise<void>;
 }
 
 const DishItem: React.FC<DishItemProps> = ({ 
@@ -678,7 +640,7 @@ const DishItem: React.FC<DishItemProps> = ({
   toggleOwner, 
   openImageSearch, 
   setDeleteConfirmId, 
-  handleSave 
+  handleSave
 }) => {
   const controls = useDragControls();
 
@@ -708,7 +670,7 @@ const DishItem: React.FC<DishItemProps> = ({
       {canEdit && (
         <button 
           onClick={() => setDeleteConfirmId(dish.id)}
-          className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md opacity-30 group-hover:opacity-100 transition-all hover:bg-red-600 z-10"
+          className="absolute top-2 right-2 w-5 h-5 bg-red-400 text-white rounded-full flex items-center justify-center shadow-sm opacity-30 group-hover:opacity-100 transition-all hover:bg-red-500 z-10"
           title="Delete dish"
         >
           <X size={14} strokeWidth={3} />
@@ -765,8 +727,9 @@ const DishItem: React.FC<DishItemProps> = ({
           </div>
           <div className="w-20 md:w-24 relative group/tooltip">
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
-              Number of servings
+              Number of people this dish serves
             </div>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Serves</span>
             {canEdit ? (
               <input 
                 type="number" 
@@ -779,11 +742,11 @@ const DishItem: React.FC<DishItemProps> = ({
                   }
                 }}
                 onBlur={() => handleSave()}
-                title="Number of servings"
+                title="Number of people this dish serves"
                 className="w-full px-3 py-1.5 bg-zinc-50 border border-transparent rounded-xl focus:border-green-500 focus:outline-none transition-all font-medium text-zinc-900 text-sm"
               />
             ) : (
-              <div className="font-medium text-zinc-700 text-sm">{dish.count} servings</div>
+              <div className="font-medium text-zinc-700 text-sm">{dish.count} people</div>
             )}
           </div>
         </div>
@@ -823,20 +786,30 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
   const [activeDishForSearch, setActiveDishForSearch] = useState<Dish | null>(null);
+  const [generatingAvatarId, setGeneratingAvatarId] = useState<string | null>(null);
 
   const isOwner = user?.uid === potluck?.ownerId;
   const canEdit = true;
 
 
 
-  const logHistory = async (action: string) => {
+  const logHistory = async (action: string, customSnapshot?: Partial<Potluck>) => {
     if (!id) return;
     try {
+      const snapshotToSave = customSnapshot || (potluck ? {
+        title: potluck.title,
+        description: potluck.description,
+        totalPeople: potluck.totalPeople,
+        guests: potluck.guests,
+        dishes: potluck.dishes
+      } : null);
+
       await addDoc(collection(db, 'potlucks', id, 'history'), {
         userId: user?.uid || "anonymous",
         userName: user?.displayName || user?.email || "Guest User",
         action,
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
+        ...(snapshotToSave ? { snapshot: snapshotToSave } : {})
       });
     } catch (error) {
       console.error("Error logging history", error);
@@ -859,7 +832,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     return () => unsubscribe();
   }, [id]);
 
-  const handleSave = async (updatedPotluck?: Potluck | any) => {
+  const handleSave = async (updatedPotluck?: Potluck | any, action?: string) => {
     // If updatedPotluck is an event (from onBlur), ignore it and use current state
     const isPotluck = updatedPotluck && typeof updatedPotluck === 'object' && 'dishes' in updatedPotluck;
     const potluckToSave = isPotluck ? updatedPotluck : potluck;
@@ -868,7 +841,26 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     setIsSaving(true);
     try {
       await setDoc(doc(db, 'potlucks', id), potluckToSave);
-      await logHistory(`Updated potluck: ${potluckToSave.title}`);
+      await logHistory(action || `Updated potluck: ${potluckToSave.title}`, potluckToSave);
+      setIsSaving(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `potlucks/${id}`);
+      setIsSaving(false);
+    }
+  };
+
+  const handleRestore = async (snapshot: Partial<Potluck>) => {
+    if (!id || !potluck) return;
+    setIsSaving(true);
+    try {
+      const restoredPotluck = {
+        ...potluck,
+        ...snapshot,
+        id: potluck.id,
+        createdAt: potluck.createdAt
+      };
+      await setDoc(doc(db, 'potlucks', id), restoredPotluck);
+      await logHistory(`Restored to version from history`, restoredPotluck);
       setIsSaving(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `potlucks/${id}`);
@@ -880,7 +872,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     if (!potluck) return;
     const updated = { ...potluck, dishes: newDishes };
     setPotluck(updated);
-    handleSave(updated);
+    handleSave(updated, "Reordered dishes");
   };
 
   const handleDelete = async () => {
@@ -904,8 +896,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     const newGuest: Guest = { id: uuidv4(), name: "" };
     const updated = { ...potluck, guests: [...potluck.guests, newGuest] };
     setPotluck(updated);
-    handleSave(updated);
-    logHistory("Added a new guest");
+    handleSave(updated, "Added a new guest");
   };
 
   const removeGuest = (guestId: string) => {
@@ -920,8 +911,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
       }))
     };
     setPotluck(updated);
-    handleSave(updated);
-    logHistory(`Removed guest: ${guest?.name || "Unnamed"}`);
+    handleSave(updated, `Removed guest: ${guest?.name || "Unnamed"}`);
   };
 
   const updateGuest = (guestId: string, name: string) => {
@@ -932,6 +922,47 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     });
   };
 
+  const generateGuestAvatar = async (guestId: string, guestName: string) => {
+    if (!guestName || generatingAvatarId || !potluck) return;
+    
+    setGeneratingAvatarId(guestId);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [
+            {
+              text: `A friendly, diverse, high-quality avatar portrait of a person named ${guestName} for a potluck app. Style: clean, modern, 3D render or professional illustration.`,
+            },
+          ],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1",
+          },
+        },
+      });
+
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          const base64EncodeString = part.inlineData.data;
+          const imageUrl = `data:image/png;base64,${base64EncodeString}`;
+          
+          const updatedGuests = potluck.guests.map(g => g.id === guestId ? { ...g, imageUrl } : g);
+          const updatedPotluck = { ...potluck, guests: updatedGuests };
+          setPotluck(updatedPotluck);
+          handleSave(updatedPotluck, `Generated AI avatar for ${guestName}`);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to generate avatar:", error);
+    } finally {
+      setGeneratingAvatarId(null);
+    }
+  };
+
   const addDish = () => {
     if (!potluck) return;
     const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F43F5E'];
@@ -939,8 +970,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     const newDish: Dish = { id: uuidv4(), name: "", count: 1, ownerIds: [], color: randomColor };
     const updated = { ...potluck, dishes: [...potluck.dishes, newDish] };
     setPotluck(updated);
-    handleSave(updated);
-    logHistory("Added a new dish");
+    handleSave(updated, "Added a new dish");
   };
 
   const removeDish = (dishId: string) => {
@@ -948,8 +978,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     const dish = potluck.dishes.find(d => d.id === dishId);
     const updated = { ...potluck, dishes: potluck.dishes.filter(d => d.id !== dishId) };
     setPotluck(updated);
-    handleSave(updated);
-    logHistory(`Removed dish: ${dish?.name || "Unnamed"}`);
+    handleSave(updated, `Removed dish: ${dish?.name || "Unnamed"}`);
   };
 
   const updateDish = (dishId: string, updates: Partial<Dish>) => {
@@ -993,8 +1022,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
       };
       setPotluck(updated);
       setImageSearchOpen(false);
-      handleSave(updated);
-      logHistory(`Updated image for dish: ${activeDishForSearch.name || "Unnamed"}`);
+      handleSave(updated, `Updated image for dish: ${activeDishForSearch.name || "Unnamed"}`);
       setActiveDishForSearch(null);
     } else if (urlEditId && potluck) {
       const updated = {
@@ -1068,16 +1096,16 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
             )}
             <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-blue-50 border border-blue-100 rounded-xl min-w-[40px] relative group/tooltip">
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
-                Total number of people attending
+                Number of people this potluck serves
               </div>
-              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total People</span>
+              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Serves People</span>
               {canEdit ? (
                 <input 
                   type="number"
                   value={potluck.totalPeople || 0}
                   onChange={(e) => setPotluck({ ...potluck, totalPeople: parseInt(e.target.value) || 0 })}
                   onBlur={() => handleSave()}
-                  title="Total number of people attending"
+                  title="Number of people this potluck serves"
                   className="text-xl font-black text-blue-700 bg-transparent w-full text-center focus:outline-none"
                 />
               ) : (
@@ -1207,8 +1235,12 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                     {canEdit ? (
                       <>
                         <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
-                          <div className="w-10 h-10 rounded-xl flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500">
-                            <Users size={16} />
+                          <div className="w-10 h-10 rounded-xl flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500 overflow-hidden">
+                            {guest.imageUrl ? (
+                              <img src={guest.imageUrl} alt={guest.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <Users size={16} />
+                            )}
                           </div>
                           <div className="relative min-w-[120px]">
                             <span className="invisible whitespace-pre px-4 py-2 block min-h-[42px]">{guest.name || "Guest name"}</span>
@@ -1227,6 +1259,16 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                               className="absolute inset-0 w-full px-4 py-2 bg-zinc-200 border border-transparent rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition-all"
                             />
                           </div>
+                          {guest.name && (
+                            <button 
+                              onClick={() => generateGuestAvatar(guest.id, guest.name)}
+                              disabled={generatingAvatarId === guest.id}
+                              className={`p-1.5 rounded-lg transition-all flex-shrink-0 ${generatingAvatarId === guest.id ? 'bg-zinc-100 text-zinc-400 animate-pulse' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                              title="Generate AI Avatar"
+                            >
+                              <Sparkles size={14} />
+                            </button>
+                          )}
                         </div>
                         <div className="flex-1 flex flex-wrap gap-1 justify-end">
                           {potluck.dishes.filter(d => d.ownerIds.includes(guest.id)).map(d => (
@@ -1241,7 +1283,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                         </div>
                         <button 
                           onClick={() => removeGuest(guest.id)}
-                          className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md opacity-30 group-hover:opacity-100 transition-all hover:bg-red-600 flex-shrink-0"
+                          className="w-5 h-5 bg-red-400 text-white rounded-full flex items-center justify-center shadow-sm opacity-30 group-hover:opacity-100 transition-all hover:bg-red-500 flex-shrink-0"
                           title="Remove guest"
                         >
                           <X size={14} strokeWidth={3} />
@@ -1249,7 +1291,16 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                       </>
                     ) : (
                       <div className="flex-1 flex items-center justify-between gap-3 px-4 py-2 bg-zinc-50 rounded-xl min-w-0">
-                        <span className="text-zinc-700 font-medium whitespace-nowrap flex-shrink-0">{guest.name || "Unnamed Guest"}</span>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-lg flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500 overflow-hidden">
+                            {guest.imageUrl ? (
+                              <img src={guest.imageUrl} alt={guest.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <Users size={12} />
+                            )}
+                          </div>
+                          <span className="text-zinc-700 font-medium whitespace-nowrap flex-shrink-0">{guest.name || "Unnamed Guest"}</span>
+                        </div>
                         <div className="flex flex-wrap gap-1 justify-end">
                           {potluck.dishes.filter(d => d.ownerIds.includes(guest.id)).map(d => (
                             <div 
@@ -1342,12 +1393,15 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         isOpen={historyOpen}
         onClose={() => setHistoryOpen(false)}
         potluckId={id || ""}
+        onRestore={handleRestore}
+        canEdit={canEdit}
       />
 
       <ImageSearchModal 
         isOpen={imageSearchOpen}
         onClose={() => setImageSearchOpen(false)}
         dishName={activeDishForSearch?.name || ""}
+        currentUrl={activeDishForSearch?.imageUrl || ""}
         onSelect={handleUrlSubmit}
       />
 
