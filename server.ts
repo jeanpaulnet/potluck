@@ -11,26 +11,39 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Request logging
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    console.log("Starting server in DEVELOPMENT mode");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
     
-    // In dev, if vite.middlewares doesn't handle it, we still want SPA fallback
+    // SPA fallback for dev
     app.use("*", async (req, res, next) => {
       const url = req.originalUrl;
+      // Skip API routes
+      if (url.startsWith('/api')) return next();
+      
       try {
-        let template = await vite.transformIndexHtml(url, `<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`);
-        res.status(200).set({ "Content-Type": "text/html" }).end(template);
+        const fs = await import('fs');
+        const template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+        const html = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
       } catch (e) {
         vite.ssrFixStacktrace(e as Error);
         next(e);
       }
     });
   } else {
+    console.log("Starting server in PRODUCTION mode");
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     
