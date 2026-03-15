@@ -75,6 +75,56 @@ async function startServer() {
     }
   });
 
+  // Proxy for external backup get single item API
+  app.get("/api/common/:id", async (req, res) => {
+    const { id } = req.params;
+    const externalUrl = `https://webapi.tyzenr.com/common/${id}`;
+    console.log(`[EXTERNAL REQ] GET ${externalUrl}`);
+    
+    try {
+      const response = await fetch(externalUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      console.log(`[EXTERNAL RES] GET ${externalUrl} - Status: ${response.status}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(404).json({ error: "Potluck not found in backup" });
+        }
+        throw new Error(`External API responded with status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error(`[EXTERNAL ERR] GET ${externalUrl}:`, error);
+      res.status(500).json({ error: "Failed to fetch from external backup API" });
+    }
+  });
+
+  // Proxy for external backup delete API
+  app.delete("/api/common/:id", async (req, res) => {
+    const { id } = req.params;
+    const externalUrl = `https://webapi.tyzenr.com/common/${id}`;
+    console.log(`[EXTERNAL REQ] DELETE ${externalUrl}`);
+    
+    try {
+      const response = await fetch(externalUrl, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const status = response.status;
+      console.log(`[EXTERNAL RES] DELETE ${externalUrl} - Status: ${status}`);
+      res.status(status).json({ success: response.ok });
+    } catch (error) {
+      console.error(`[EXTERNAL ERR] DELETE ${externalUrl}:`, error);
+      res.status(500).json({ error: "Failed to delete from external backup API" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting server in DEVELOPMENT mode");

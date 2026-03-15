@@ -48,6 +48,7 @@ import {
   Download,
   Upload,
   Globe,
+  StickyNote,
   Lock,
   Unlock
 } from 'lucide-react';
@@ -129,7 +130,6 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 interface Guest {
   id: string;
   name: string;
-  locked?: boolean;
 }
 
 interface Dish {
@@ -148,6 +148,7 @@ interface Potluck {
   title: string;
   description?: string;
   totalPeople?: number;
+  notes?: string;
   ownerId: string;
   createdAt: Timestamp;
   guests: Guest[];
@@ -362,6 +363,18 @@ const Navbar = ({ user }: { user: User | null }) => {
   );
 };
 
+const deleteFromExternalApi = async (potluckId: string) => {
+  console.log(`[API REQ] DELETE /api/common/${potluckId}`);
+  try {
+    const response = await fetch(`/api/common/${potluckId}`, {
+      method: 'DELETE'
+    });
+    console.log(`[API RES] DELETE /api/common/${potluckId} - Status: ${response.status}`);
+  } catch (err) {
+    console.error("[API ERR] DELETE /api/common:", err);
+  }
+};
+
 const HomePage = ({ user }: { user: User | null }) => {
   const [potlucks, setPotlucks] = useState<Potluck[]>([]);
   const [loading, setLoading] = useState(true);
@@ -495,6 +508,9 @@ const HomePage = ({ user }: { user: User | null }) => {
 
   const deletePotluck = async (id: string) => {
     try {
+      // Call external API in background
+      deleteFromExternalApi(id);
+      
       await deleteDoc(doc(db, 'potlucks', id));
       setDeleteConfirmId(null);
       setHomeError(null);
@@ -912,7 +928,7 @@ const DishItem: React.FC<DishItemProps> = ({
               </div>
             )}
           </div>
-          <div className="w-10 md:w-12 relative group/tooltip">
+          <div className="w-20 md:w-24 relative group/tooltip">
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
               Total quantity or count
             </div>
@@ -974,10 +990,9 @@ interface GuestItemProps {
   removeGuest: (id: string) => void;
   setDeleteConfirmId: (id: string | null) => void;
   handleSave: (updatedPotluck?: any, action?: string) => Promise<void>;
-  toggleGuestLock: (id: string) => void;
 }
 
-const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest, setDeleteConfirmId, handleSave, toggleGuestLock }: GuestItemProps) => {
+const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest, setDeleteConfirmId, handleSave }: GuestItemProps) => {
   const controls = useDragControls();
   const canEditThisGuest = canEdit;
 
@@ -991,22 +1006,6 @@ const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest,
       exit={{ opacity: 0, height: 0 }}
       className={`flex items-center gap-3 group relative pl-10 pr-12 py-2 rounded-2xl transition-all`}
     >
-      {!isOwner && guest.locked && (
-        <div className="absolute bottom-2 right-2 text-amber-500 z-30" title="This guest is locked by the creator">
-          <Lock size={12} />
-        </div>
-      )}
-
-      {isOwner && (
-        <button 
-          onClick={() => toggleGuestLock(guest.id)}
-          className={`absolute bottom-2 right-2 p-1 rounded-md transition-all shadow-sm z-30 ${guest.locked ? 'bg-amber-500 text-white' : 'bg-white text-zinc-400 hover:text-amber-500 border border-black/5'}`}
-          title={guest.locked ? "Unlock guest" : "Lock guest"}
-        >
-          {guest.locked ? <Lock size={10} /> : <Unlock size={10} />}
-        </button>
-      )}
-
       {canEdit && (
         <div 
           onPointerDown={(e) => controls.start(e)}
@@ -1090,6 +1089,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteType, setDeleteType] = useState<'dish' | 'guest' | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
+  const [isBackupFetching, setIsBackupFetching] = useState(false);
   const [activeDishForSearch, setActiveDishForSearch] = useState<Dish | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const potluckRef = React.useRef(potluck);
@@ -1114,6 +1114,43 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
 
   useEffect(() => {
     if (!id) return;
+
+    const fetchFromBackup = async () => {
+      try {
+        setIsBackupFetching(true);
+        const url = `/api/common/${id}`;
+        console.log(`[API REQ] GET ${url}`);
+        const response = await fetch(url);
+        console.log(`[API RES] GET ${url} - Status: ${response.status}`);
+        
+        if (response.ok) {
+          const item = await response.json();
+          if (item && item.Content) {
+            const content = JSON.parse(item.Content);
+            const backupPotluck = {
+              ...content,
+              id: item.Id || content.id,
+              createdAt: content.createdAt?.seconds 
+                ? new Timestamp(content.createdAt.seconds, content.createdAt.nanoseconds)
+                : Timestamp.now()
+            } as Potluck;
+            
+            // Only update if we don't have data yet or if backup is newer (optional logic)
+            setPotluck(prev => {
+              if (!prev) return backupPotluck;
+              return prev; // Keep Firestore as source of truth if already loaded
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch potluck from backup:", err);
+      } finally {
+        setIsBackupFetching(false);
+      }
+    };
+
+    fetchFromBackup();
+
     const unsubscribe = onSnapshot(doc(db, 'potlucks', id), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
@@ -1366,18 +1403,6 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     handleSave(updated, `${dish.locked ? 'Unlocked' : 'Locked'} dish: ${dish.name || "Unnamed"}`);
   };
 
-  const toggleGuestLock = (guestId: string) => {
-    if (!potluck || !isOwner) return;
-    const guest = potluck.guests.find(g => g.id === guestId);
-    if (!guest) return;
-    const updated = {
-      ...potluck,
-      guests: potluck.guests.map(g => g.id === guestId ? { ...g, locked: !g.locked } : g)
-    };
-    setPotluck(updated);
-    handleSave(updated, `${guest.locked ? 'Unlocked' : 'Locked'} guest: ${guest.name || "Unnamed"}`);
-  };
-
   const handleUrlSubmit = (e: React.FormEvent | string) => {
     let url: string;
     if (typeof e === 'string') {
@@ -1449,6 +1474,9 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                     Public Editing Enabled
                   </div>
                 )}
+                {isBackupFetching && (
+                  <div className="text-[10px] text-emerald-500 font-medium animate-pulse mb-1">Syncing with backup...</div>
+                )}
                 <input 
                   type="text" 
                   value={potluck.title}
@@ -1481,13 +1509,16 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               </div>
             ) : (
               <div className="flex-1 space-y-1 w-full min-w-0">
+                {isBackupFetching && (
+                  <div className="text-[10px] text-emerald-500 font-medium animate-pulse mb-1">Syncing with backup...</div>
+                )}
                 <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-zinc-900 break-words">
                   {potluck.title}
                 </h1>
                 {potluck.description && <p className="text-zinc-500 text-sm break-words">{potluck.description}</p>}
               </div>
             )}
-            <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-blue-50 border border-blue-100 rounded-xl min-w-[40px] relative group/tooltip">
+            <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-blue-50 border border-blue-100 rounded-xl w-[60%] min-w-[40px] relative group/tooltip">
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
                 Number of people this potluck serves
               </div>
@@ -1607,6 +1638,35 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
           </div>
         </div>
 
+        {/* Notes Section */}
+        <div className="w-full">
+          <div className="bg-zinc-100 border border-black/5 rounded-3xl overflow-hidden shadow-sm">
+            <div className="px-6 py-5 border-b border-black/5 bg-zinc-200 flex items-center gap-2 font-bold text-zinc-900">
+              <StickyNote size={20} className="text-amber-500" />
+              Notes
+            </div>
+            <div className="p-6">
+              {canEdit ? (
+                <textarea 
+                  value={potluck.notes || ""}
+                  placeholder="Add any special notes or instructions here..."
+                  onChange={(e) => {
+                    const updated = { ...potluck, notes: e.target.value };
+                    setPotluck(updated);
+                    potluckRef.current = updated;
+                  }}
+                  onBlur={() => handleSave()}
+                  className="w-full min-h-[120px] p-4 bg-white border border-zinc-200 rounded-2xl focus:border-amber-500 focus:outline-none transition-all text-zinc-900 text-sm resize-none"
+                />
+              ) : (
+                <div className="min-h-[60px] p-4 bg-white border border-zinc-100 rounded-2xl text-zinc-600 text-sm whitespace-pre-wrap italic">
+                  {potluck.notes || "No notes added."}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Guests Section */}
         <div className="w-full">
           <div className="bg-zinc-100 border border-black/5 rounded-3xl overflow-hidden shadow-sm">
@@ -1641,7 +1701,6 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                         setDeleteType(id ? 'guest' : null);
                       }}
                       handleSave={handleSave}
-                      toggleGuestLock={toggleGuestLock}
                     />
                   ))}
                 </AnimatePresence>
