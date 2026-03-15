@@ -41,6 +41,7 @@ service cloud.firestore {
     function isValidDish(dish) {
       return dish.id is string &&
              dish.name is string &&
+             (!('description' in dish) || (dish.description is string && dish.description.size() <= 500)) &&
              (!('imageUrl' in dish) || (dish.imageUrl is string && dish.imageUrl.size() <= 200));
     }
 
