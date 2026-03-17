@@ -767,7 +767,7 @@ const HomePage = ({ user }: { user: User | null }) => {
           ) : (
             <>
               <h3 className="text-lg font-medium text-zinc-900 mb-1">Sign in to see your potlucks</h3>
-              <p className="text-zinc-500 mb-6">You need to be signed in to manage your potlucks.</p>
+              <p className="text-zinc-500 mb-6">You need to be signed in to create/view your potlucks.</p>
             </>
           )}
         </div>
@@ -872,7 +872,7 @@ const DishItem: React.FC<DishItemProps> = ({
     <div 
       ref={setNodeRef}
       style={style}
-      className={`border rounded-2xl p-6 pl-10 relative group transition-all ${bgColor}`}
+      className={`border rounded-2xl p-3 pl-10 relative group transition-all ${bgColor}`}
     >
       {canEdit && (
         <div 
@@ -919,7 +919,7 @@ const DishItem: React.FC<DishItemProps> = ({
       <div className="flex flex-col gap-4">
         <div className="flex flex-col md:flex-row gap-4 items-center">
           <div 
-            className="w-[96px] h-[96px] rounded-xl flex-shrink-0 shadow-sm border border-black/5 overflow-hidden cursor-pointer group/img relative"
+            className="w-12 h-12 rounded-xl flex-shrink-0 shadow-sm border border-black/5 overflow-hidden cursor-pointer group/img relative"
             style={{ backgroundColor: !dish.imageUrl ? (dish.color || '#E5E7EB') : 'transparent' }}
             onClick={() => canEditThisDish && openImageSearch(dish, type)}
             title={canEditThisDish ? "Click to set image" : ""}
@@ -933,7 +933,7 @@ const DishItem: React.FC<DishItemProps> = ({
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-white/50">
-                <ImageIcon size={40} />
+                <ImageIcon size={24} />
               </div>
             )}
             
@@ -1069,8 +1069,8 @@ const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest,
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: 'auto' }}
       exit={{ opacity: 0, height: 0 }}
-      className={`flex items-center group relative rounded-2xl transition-all bg-purple-50/50 hover:bg-purple-50 border border-transparent hover:border-purple-100 ${
-        potluck.guestsLocked ? 'pl-14 pr-16 py-6 gap-6' : 'pl-10 pr-12 py-2 gap-3'
+      className={`flex items-center group relative rounded-2xl transition-all bg-white hover:bg-zinc-50 border border-black/5 hover:border-purple-100 ${
+        potluck.guestsLocked ? 'pl-14 pr-16 py-6 gap-6' : 'pl-10 pr-12 py-4 gap-3'
       }`}
     >
       {canEdit && (
@@ -1094,7 +1094,7 @@ const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest,
         <div className="relative min-w-[120px]">
           {canEditThisGuest ? (
             <>
-              <span className="invisible whitespace-pre px-4 py-2 block min-h-[42px]">{guest.name || "Guest name"}</span>
+              <span className="invisible whitespace-pre px-4 py-2 block min-h-[42px] text-base">{guest.name || "Guest name"}</span>
               <input 
                 type="text" 
                 value={guest.name}
@@ -1107,7 +1107,7 @@ const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest,
                   }
                 }}
                 onBlur={() => handleSave()}
-                className="absolute inset-0 w-full px-4 py-2 bg-purple-100 border border-transparent rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition-all"
+                className="absolute inset-0 w-full px-4 py-2 bg-purple-100 border border-transparent rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition-all text-base"
               />
             </>
           ) : (
