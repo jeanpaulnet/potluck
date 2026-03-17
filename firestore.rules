@@ -14,6 +14,8 @@ service cloud.firestore {
     //   - createdAt: timestamp (required, immutable)
     //   - guests: list of maps (optional)
     //   - dishes: list of maps (optional)
+    //   - otherItems: list of maps (optional)
+    //   - expenses: list of maps (optional)
     //   - notes: string (optional)
     //   - comments: string (optional)
     //
@@ -42,7 +44,9 @@ service cloud.firestore {
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000)) &&
              (!('comments' in data) || (data.comments is string && data.comments.size() <= 5000)) &&
              (!('guests' in data) || data.guests is list) &&
-             (!('dishes' in data) || data.dishes is list);
+             (!('dishes' in data) || data.dishes is list) &&
+             (!('otherItems' in data) || data.otherItems is list) &&
+             (!('expenses' in data) || data.expenses is list);
     }
 
     match /potlucks/{potluckId} {

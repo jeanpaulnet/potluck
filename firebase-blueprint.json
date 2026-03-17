@@ -27,6 +27,17 @@
       },
       "required": ["id", "name", "count"]
     },
+    "Expense": {
+      "title": "Expense",
+      "description": "A shared expense for the potluck",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "cost": { "type": "number" }
+      },
+      "required": ["id", "name", "cost"]
+    },
     "Potluck": {
       "title": "Potluck",
       "description": "A potluck event",
@@ -51,6 +62,10 @@
         "otherItems": {
           "type": "array",
           "items": { "$ref": "Dish" }
+        },
+        "expenses": {
+          "type": "array",
+          "items": { "$ref": "Expense" }
         }
       },
       "required": ["id", "title", "ownerId", "createdAt"]
