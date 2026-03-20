@@ -1970,6 +1970,15 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               {copied ? <Check size={18} className="text-emerald-500" /> : <Copy size={18} />}
             </button>
           </div>
+          {isOwner && (
+            <button 
+              onClick={() => setIsMapModalOpen(true)}
+              className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all shadow-sm border border-blue-100 flex items-center justify-center"
+              title="Location & Map"
+            >
+              <MapPin size={20} />
+            </button>
+          )}
           <button 
             onClick={handleExport}
             className="p-3 bg-white border border-black/5 text-zinc-600 rounded-2xl hover:bg-zinc-50 transition-all shadow-sm"
@@ -1978,22 +1987,13 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
             <Download size={20} />
           </button>
           {isOwner && (
-            <>
-              <button 
-                onClick={() => setIsMapModalOpen(true)}
-                className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all shadow-sm border border-blue-100 flex items-center justify-center"
-                title="Location & Map"
-              >
-                <MapPin size={20} />
-              </button>
-              <button 
-                onClick={handleDelete}
-                className="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all"
-                title="Delete potluck"
-              >
-                <Trash2 size={20} />
-              </button>
-            </>
+            <button 
+              onClick={handleDelete}
+              className="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all"
+              title="Delete potluck"
+            >
+              <Trash2 size={20} />
+            </button>
           )}
         </div>
       </div>
