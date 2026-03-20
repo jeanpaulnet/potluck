@@ -49,6 +49,8 @@ import {
   Upload,
   Globe,
   MapPin,
+  Calendar,
+  Clock,
   StickyNote,
   MessageSquare,
   Lock,
@@ -192,6 +194,7 @@ interface Potluck {
   otherItems?: Dish[];
   expenses?: Expense[];
   version?: number;
+  eventDate?: string;
   dishesLocked?: boolean;
   otherItemsLocked?: boolean;
   guestsLocked?: boolean;
@@ -619,6 +622,7 @@ const HomePage = ({ user }: { user: User | null }) => {
       totalPeople: 10,
       ownerId: user.uid,
       createdAt: Timestamp.now(),
+      eventDate: "",
       guests: [],
       dishes: [],
       version: 1
@@ -1561,6 +1565,13 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     handleSave(updated, "Reordered dishes");
   };
 
+  const updateEventDate = (date: string) => {
+    if (!potluck) return;
+    const updated = { ...potluck, eventDate: date };
+    setPotluck(updated);
+    potluckRef.current = updated;
+  };
+
   const handleReorderOtherItems = (newItems: Dish[]) => {
     if (!potluck) return;
     const updated = { ...potluck, otherItems: newItems };
@@ -1934,9 +1945,23 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center bg-zinc-100 rounded-2xl p-1 border border-black/5">
-            <div className="px-4 py-2 text-sm text-zinc-500 truncate max-w-[200px]">
-              {window.location.href}
-            </div>
+            {isOwner ? (
+              <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-xl shadow-sm border border-black/5">
+                <Calendar size={14} className="text-zinc-400" />
+                <input 
+                  type="datetime-local" 
+                  value={potluck.eventDate || ""}
+                  onChange={(e) => updateEventDate(e.target.value)}
+                  onBlur={() => handleSave()}
+                  className="bg-transparent text-xs font-semibold text-zinc-900 focus:outline-none py-1"
+                />
+              </div>
+            ) : potluck.eventDate ? (
+              <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-zinc-600">
+                <Calendar size={14} className="text-zinc-400" />
+                {new Date(potluck.eventDate).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+            ) : null}
             <button 
               onClick={copyUrl}
               className="p-2 bg-white rounded-xl shadow-sm hover:bg-zinc-50 transition-all text-zinc-600"
@@ -1956,11 +1981,10 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
             <>
               <button 
                 onClick={() => setIsMapModalOpen(true)}
-                className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all shadow-sm border border-blue-100 flex items-center gap-2"
+                className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all shadow-sm border border-blue-100 flex items-center justify-center"
                 title="Location & Map"
               >
                 <MapPin size={20} />
-                <span className="text-sm font-bold hidden sm:inline">Map</span>
               </button>
               <button 
                 onClick={handleDelete}
