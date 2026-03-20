@@ -6,7 +6,8 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "name": { "type": "string" }
+        "name": { "type": "string" },
+        "headCount": { "type": "number" }
       },
       "required": ["id", "name"]
     },

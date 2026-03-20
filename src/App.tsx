@@ -155,6 +155,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 interface Guest {
   id: string;
   name: string;
+  headCount?: number;
 }
 
 interface Expense {
@@ -1033,7 +1034,7 @@ const DishItem: React.FC<DishItemProps> = ({
                 dish.locked ? 'px-3.5 py-1.5 text-sm shadow-sm' : 'px-2.5 py-1 text-[13.5px]'
               } ${
                 isSelected
-                  ? (type === 'dish' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-blue-600 text-white shadow-sm')
+                  ? 'bg-purple-600 text-white shadow-sm'
                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
               } ${!canToggle ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
@@ -1052,7 +1053,7 @@ interface GuestItemProps {
   potluck: Potluck;
   canEdit: boolean;
   isOwner: boolean;
-  updateGuest: (id: string, name: string) => void;
+  updateGuest: (id: string, updates: Partial<Guest>) => void;
   removeGuest: (id: string) => void;
   setDeleteConfirmId: (id: string | null) => void;
   handleSave: (updatedPotluck?: any, action?: string) => Promise<void>;
@@ -1089,30 +1090,56 @@ const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest,
       )}
 
       <div className={`flex items-center flex-shrink-0 ${potluck.guestsLocked ? 'gap-6' : 'gap-3'}`}>
-        <div className={`${potluck.guestsLocked ? 'w-10 h-10' : 'w-4 h-4'} rounded-xl flex-shrink-0 border border-black/5 bg-green-50 flex items-center justify-center text-green-500`}>
+        <div className={`${potluck.guestsLocked ? 'w-10 h-10' : 'w-4 h-4'} rounded-xl flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500`}>
           <Users size={potluck.guestsLocked ? 16 : 6} />
         </div>
-        <div className="relative min-w-[120px]">
+        <div className="relative min-w-[240px] flex-1">
           {canEditThisGuest ? (
-            <>
-              <span className="invisible whitespace-pre px-4 py-2 block min-h-[42px] text-base">{guest.name || "Guest name"}</span>
-              <input 
-                type="text" 
-                value={guest.name}
-                placeholder="Guest name"
-                onChange={(e) => updateGuest(guest.id, e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleSave();
-                    e.currentTarget.blur();
-                  }
-                }}
-                onBlur={() => handleSave()}
-                className="absolute inset-0 w-full px-4 py-2 bg-green-100 border border-transparent rounded-xl focus:bg-white focus:border-green-500 focus:outline-none transition-all text-base"
-              />
-            </>
+            <div className="flex gap-2 items-center">
+              <div className="relative flex-1">
+                <span className="invisible whitespace-pre px-4 py-2 block min-h-[42px] text-base">{guest.name || "Guest name"}</span>
+                <input 
+                  type="text" 
+                  value={guest.name}
+                  placeholder="Guest name"
+                  onChange={(e) => updateGuest(guest.id, { name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSave();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={() => handleSave()}
+                  className="absolute inset-0 w-full px-4 py-2 bg-purple-100 border border-transparent rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition-all text-base font-bold text-purple-700"
+                />
+              </div>
+              <div className="w-14 relative group/tooltip">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
+                  Head Count
+                </div>
+                <input 
+                  type="number" 
+                  min="1"
+                  value={guest.headCount || 1}
+                  onChange={(e) => updateGuest(guest.id, { headCount: parseInt(e.target.value) || 1 })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSave();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={() => handleSave()}
+                  className="w-full px-2 py-2 bg-purple-100 border border-transparent rounded-xl focus:bg-white focus:border-purple-500 focus:outline-none transition-all text-center text-base font-medium"
+                />
+              </div>
+            </div>
           ) : (
-            <div className={`${potluck.guestsLocked ? 'px-6 py-4 text-xl' : 'px-4 py-2 text-base'} font-bold text-zinc-900 truncate bg-green-100 rounded-xl`}>{guest.name || "Guest"}</div>
+            <div className="flex gap-2 items-center">
+              <div className={`${potluck.guestsLocked ? 'px-6 py-4 text-xl' : 'px-4 py-2 text-base'} font-bold text-purple-700 truncate bg-purple-100 rounded-xl flex-1`}>{guest.name || "Guest"}</div>
+              <div className={`${potluck.guestsLocked ? 'w-12 h-12 text-lg' : 'w-10 h-10 text-base'} font-bold text-purple-600 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0`}>
+                {guest.headCount || 1}
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -1470,7 +1497,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
 
   const addGuest = () => {
     if (!potluck) return;
-    const newGuest: Guest = { id: uuidv4(), name: "" };
+    const newGuest: Guest = { id: uuidv4(), name: "", headCount: 1 };
     const updated = { ...potluck, guests: [...potluck.guests, newGuest] };
     setPotluck(updated);
     handleSave(updated, "Added a new guest");
@@ -1508,11 +1535,11 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     handleSave(updated, `${updated[field] ? 'Locked' : 'Unlocked'} ${section} section`);
   };
 
-  const updateGuest = (guestId: string, name: string) => {
+  const updateGuest = (guestId: string, updates: Partial<Guest>) => {
     if (!potluck) return;
     const updated = {
       ...potluck,
-      guests: potluck.guests.map(g => g.id === guestId ? { ...g, name } : g)
+      guests: potluck.guests.map(g => g.id === guestId ? { ...g, ...updates } : g)
     };
     setPotluck(updated);
     potluckRef.current = updated;
@@ -1686,6 +1713,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
 
   const totalServes = potluck?.dishes.reduce((sum, dish) => sum + (dish.count || 0), 0) || 0;
   const totalExpenses = potluck?.expenses?.reduce((sum, e) => sum + (e.cost || 0), 0) || 0;
+  const actualHeadCount = potluck?.guests.reduce((sum, guest) => sum + (guest.headCount || 1), 0) || 0;
 
   if (loading) return (
     <div className="flex justify-center py-40">
@@ -1762,27 +1790,12 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               </div>
             )}
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-blue-50 border border-blue-100 rounded-xl w-20 relative group/tooltip">
+              <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-purple-50 border border-purple-100 rounded-xl min-w-[80px] relative group/tooltip">
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
-                  Number of people invited
+                  Total actual headcount (sum of guest headcounts)
                 </div>
-                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">People</span>
-                {canEdit ? (
-                  <input 
-                    type="number"
-                    value={potluck.totalPeople || 0}
-                    onChange={(e) => {
-                      const updated = { ...potluck, totalPeople: parseInt(e.target.value) || 0 };
-                      setPotluck(updated);
-                      potluckRef.current = updated;
-                    }}
-                    onBlur={() => handleSave()}
-                    title="Number of people invited"
-                    className="text-xl font-black text-blue-700 bg-transparent w-full text-center focus:outline-none"
-                  />
-                ) : (
-                  <span className="text-xl font-black text-blue-700">{potluck.totalPeople || 0}</span>
-                )}
+                <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Heads</span>
+                <span className="text-xl font-black text-purple-700" title="Total headcount">{actualHeadCount}</span>
               </div>
 
               <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl w-20 relative group/tooltip">
@@ -1984,11 +1997,12 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
 
         {/* Guests Section */}
         <div className="w-full mt-6 mb-[10px]">
-          <div className="bg-green-50/30 border border-green-100/50 rounded-3xl overflow-hidden shadow-sm">
-            <div className="px-6 py-5 border-b border-green-100/50 bg-green-100/30 flex items-center justify-between">
+          <div className="bg-purple-50/30 border border-purple-100/50 rounded-3xl overflow-hidden shadow-sm">
+            <div className="px-6 py-5 border-b border-purple-100/50 bg-purple-100/30 flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-zinc-900">
-                <Users size={16} className="text-green-500" />
+                <Users size={16} className="text-purple-500" />
                 Guests ({potluck.guests.length})
+                <span className="text-purple-500 font-medium text-sm ml-1">· {actualHeadCount} Heads</span>
               </div>
               <div className="flex items-center gap-2">
                 {isOwner && (
@@ -2003,7 +2017,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                 {canEdit && !potluck.guestsLocked && (
                   <button 
                     onClick={addGuest}
-                    className="p-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all"
+                    className="p-1.5 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all"
                   >
                     <Plus size={16} />
                   </button>
@@ -2037,7 +2051,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               {canEdit && !potluck.guestsLocked && (
                 <button 
                   onClick={addGuest}
-                  className="w-full py-4 mt-4 border-2 border-dashed border-zinc-200 rounded-2xl text-zinc-400 hover:text-green-600 hover:border-green-400 hover:bg-green-50 transition-all flex items-center justify-center gap-2 font-medium"
+                  className="w-full py-4 mt-4 border-2 border-dashed border-zinc-200 rounded-2xl text-zinc-400 hover:text-purple-600 hover:border-purple-400 hover:bg-purple-50 transition-all flex items-center justify-center gap-2 font-medium"
                 >
                   <Plus size={20} />
                   Add Another Guest
