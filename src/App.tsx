@@ -48,6 +48,7 @@ import {
   Download,
   Upload,
   Globe,
+  MapPin,
   StickyNote,
   MessageSquare,
   Lock,
@@ -179,6 +180,8 @@ interface Potluck {
   id: string;
   title: string;
   description?: string;
+  locationAddress?: string;
+  mapUrl?: string;
   totalPeople?: number;
   notes?: string;
   comments?: string;
@@ -280,6 +283,98 @@ const ImageSearchModal = ({ isOpen, onClose, dishName, currentUrl, onSelect }: I
             </div>
           </form>
         </div>
+
+        <div className="px-6 py-4 bg-zinc-50 border-t border-black/5 flex items-center justify-end">
+          <button 
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-bold text-zinc-600 hover:text-zinc-900 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+interface MapModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  address: string;
+  mapUrl: string;
+  onSave: (address: string, mapUrl: string) => void;
+}
+
+const MapModal = ({ isOpen, onClose, address, mapUrl, onSave }: MapModalProps) => {
+  const [tempAddress, setTempAddress] = useState("");
+  const [tempUrl, setTempUrl] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      setTempAddress(address || "");
+      setTempUrl(mapUrl || "");
+    }
+  }, [isOpen, address, mapUrl]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(tempAddress, tempUrl);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 20 }}
+        className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+      >
+        <div className="px-6 py-5 border-b border-black/5 flex items-center justify-between bg-zinc-50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
+              <MapPin size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-zinc-900">Location Details</h3>
+              <p className="text-xs text-zinc-500">Set address and map link</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-zinc-200 rounded-full transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Location Address</label>
+            <textarea 
+              value={tempAddress}
+              onChange={(e) => setTempAddress(e.target.value)}
+              placeholder="123 Party St, Celebration City"
+              className="w-full px-4 py-3 bg-zinc-50 border border-black/5 rounded-xl focus:bg-white focus:border-blue-500 focus:outline-none transition-all resize-none"
+              rows={3}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Google Maps URL</label>
+            <input 
+              type="url" 
+              value={tempUrl}
+              onChange={(e) => setTempUrl(e.target.value)}
+              placeholder="https://goo.gl/maps/..."
+              className="w-full px-4 py-3 bg-zinc-50 border border-black/5 rounded-xl focus:bg-white focus:border-blue-500 focus:outline-none transition-all"
+            />
+          </div>
+          <button 
+            type="submit"
+            className="w-full py-3 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 transition-all mt-4"
+          >
+            Save Location
+          </button>
+        </form>
 
         <div className="px-6 py-4 bg-zinc-50 border-t border-black/5 flex items-center justify-end">
           <button 
@@ -1184,6 +1279,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteType, setDeleteType] = useState<'dish' | 'guest' | 'other' | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [isBackupFetching, setIsBackupFetching] = useState(false);
   const [activeDishForSearch, setActiveDishForSearch] = useState<Dish | null>(null);
   const [activeSearchType, setActiveSearchType] = useState<'dish' | 'other'>('dish');
@@ -1777,6 +1873,18 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                   className="w-full bg-transparent text-zinc-500 text-sm resize-none focus:outline-none border-b border-transparent hover:border-zinc-200 focus:border-emerald-500 transition-all py-1 min-w-0 break-words"
                   rows={2}
                 />
+                {potluck.locationAddress && (
+                  <div className="flex items-center gap-2 text-blue-600 text-xs mt-1">
+                    <MapPin size={12} />
+                    {potluck.mapUrl ? (
+                      <a href={potluck.mapUrl} target="_blank" rel="noopener noreferrer" className="hover:underline font-medium truncate max-w-[200px]">
+                        {potluck.locationAddress}
+                      </a>
+                    ) : (
+                      <span className="font-medium truncate max-w-[200px]">{potluck.locationAddress}</span>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex-1 space-y-1 w-full min-w-0">
@@ -1787,6 +1895,18 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                   {potluck.title}
                 </h1>
                 {potluck.description && <p className="text-zinc-500 text-sm break-words">{potluck.description}</p>}
+                {potluck.locationAddress && (
+                  <div className="flex items-center gap-2 text-blue-600 text-sm mt-1">
+                    <MapPin size={14} />
+                    {potluck.mapUrl ? (
+                      <a href={potluck.mapUrl} target="_blank" rel="noopener noreferrer" className="hover:underline font-medium truncate max-w-[300px]">
+                        {potluck.locationAddress}
+                      </a>
+                    ) : (
+                      <span className="font-medium truncate max-w-[300px]">{potluck.locationAddress}</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1829,13 +1949,23 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
             <Download size={20} />
           </button>
           {isOwner && (
-            <button 
-              onClick={handleDelete}
-              className="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all"
-              title="Delete potluck"
-            >
-              <Trash2 size={20} />
-            </button>
+            <>
+              <button 
+                onClick={() => setIsMapModalOpen(true)}
+                className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all shadow-sm border border-blue-100 flex items-center gap-2"
+                title="Location & Map"
+              >
+                <MapPin size={20} />
+                <span className="text-sm font-bold hidden sm:inline">Map</span>
+              </button>
+              <button 
+                onClick={handleDelete}
+                className="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all"
+                title="Delete potluck"
+              >
+                <Trash2 size={20} />
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -2249,6 +2379,19 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         dishName={activeDishForSearch?.name || ""}
         currentUrl={activeDishForSearch?.imageUrl || ""}
         onSelect={handleUrlSubmit}
+      />
+
+      <MapModal 
+        isOpen={isMapModalOpen}
+        onClose={() => setIsMapModalOpen(false)}
+        address={potluck.locationAddress || ""}
+        mapUrl={potluck.mapUrl || ""}
+        onSave={(address, url) => {
+          const updated = { ...potluck, locationAddress: address, mapUrl: url };
+          setPotluck(updated);
+          potluckRef.current = updated;
+          handleSave(updated, "Updated location details");
+        }}
       />
 
       <AnimatePresence>
