@@ -7,7 +7,8 @@
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "headCount": { "type": "number" }
+        "headCount": { "type": "number" },
+        "checked": { "type": "boolean" }
       },
       "required": ["id", "name"]
     },
@@ -49,7 +50,7 @@
         "description": { "type": "string" },
         "totalPeople": { "type": "number" },
         "notes": { "type": "string" },
-        "comments": { "type": "string" },
+        "suggestions": { "type": "string" },
         "ownerId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "guests": {
@@ -67,7 +68,11 @@
         "expenses": {
           "type": "array",
           "items": { "$ref": "Expense" }
-        }
+        },
+        "dishesLocked": { "type": "boolean" },
+        "otherItemsLocked": { "type": "boolean" },
+        "guestsLocked": { "type": "boolean" },
+        "showPaidCheckboxes": { "type": "boolean" }
       },
       "required": ["id", "title", "ownerId", "createdAt"]
     }

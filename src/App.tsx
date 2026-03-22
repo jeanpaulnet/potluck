@@ -159,6 +159,7 @@ interface Guest {
   id: string;
   name: string;
   headCount?: number;
+  checked?: boolean;
 }
 
 interface Expense {
@@ -186,7 +187,7 @@ interface Potluck {
   mapUrl?: string;
   totalPeople?: number;
   notes?: string;
-  comments?: string;
+  suggestions?: string;
   ownerId: string;
   createdAt: Timestamp;
   guests: Guest[];
@@ -198,6 +199,7 @@ interface Potluck {
   dishesLocked?: boolean;
   otherItemsLocked?: boolean;
   guestsLocked?: boolean;
+  showPaidCheckboxes?: boolean;
 }
 
 // --- Image Search Modal ---
@@ -1193,9 +1195,37 @@ const GuestItem = ({ guest, potluck, canEdit, isOwner, updateGuest, removeGuest,
       )}
 
       <div className={`flex items-center flex-shrink-0 ${potluck.guestsLocked ? 'gap-6' : 'gap-3'}`}>
-        <div className={`${potluck.guestsLocked ? 'w-10 h-10' : 'w-4 h-4'} rounded-xl flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500`}>
-          <Users size={potluck.guestsLocked ? 16 : 6} />
-        </div>
+        {potluck.showPaidCheckboxes ? (
+          <div className="relative group/tooltip">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
+              {guest.checked ? 'Paid' : 'Not Paid'}
+            </div>
+            <button
+              onClick={() => {
+                if (isOwner) {
+                  updateGuest(guest.id, { checked: !guest.checked });
+                  handleSave();
+                }
+              }}
+              disabled={!isOwner}
+              className={`
+                ${potluck.guestsLocked ? 'w-10 h-10' : 'w-6 h-6'} 
+                rounded-lg flex-shrink-0 border-2 transition-all flex items-center justify-center
+                ${guest.checked 
+                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-200' 
+                  : 'bg-white border-zinc-200 text-transparent hover:border-emerald-300'
+                }
+                ${!isOwner ? 'cursor-default' : 'cursor-pointer active:scale-95'}
+              `}
+            >
+              <Check size={potluck.guestsLocked ? 20 : 14} strokeWidth={4} />
+            </button>
+          </div>
+        ) : (
+          <div className={`${potluck.guestsLocked ? 'w-10 h-10' : 'w-4 h-4'} rounded-xl flex-shrink-0 border border-black/5 bg-purple-50 flex items-center justify-center text-purple-500`}>
+            <Users size={potluck.guestsLocked ? 16 : 6} />
+          </div>
+        )}
         <div className="relative min-w-[240px] flex-1">
           {canEditThisGuest ? (
             <div className="flex gap-2 items-center">
@@ -1483,9 +1513,19 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
     const exportData = {
       title: potluck.title,
       description: potluck.description,
+      locationAddress: potluck.locationAddress,
+      mapUrl: potluck.mapUrl,
+      eventDate: potluck.eventDate,
       totalPeople: potluck.totalPeople,
+      notes: potluck.notes,
+      suggestions: potluck.suggestions,
       guests: potluck.guests,
-      dishes: potluck.dishes
+      dishes: potluck.dishes,
+      otherItems: potluck.otherItems,
+      expenses: potluck.expenses,
+      dishesLocked: potluck.dishesLocked,
+      otherItemsLocked: potluck.otherItemsLocked,
+      guestsLocked: potluck.guestsLocked
     };
     
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -1847,8 +1887,8 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
             <ArrowLeft size={16} />
             Back to Potlucks
           </Link>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 w-full min-w-0 overflow-hidden">
-            {canEdit ? (
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 w-full min-w-0">
+            {isOwner ? (
               <div className="flex-1 space-y-2 w-full min-w-0">
                 {!user && (
                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">
@@ -1886,7 +1926,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                   }}
                   onBlur={() => handleSave()}
                   className="w-full bg-transparent text-zinc-500 text-sm resize-none focus:outline-none border-b border-transparent hover:border-zinc-200 focus:border-emerald-500 transition-all py-1 min-w-0 break-words"
-                  rows={2}
+                  rows={3}
                 />
                 {potluck.locationAddress && (
                   <div className="flex items-center gap-2 text-blue-600 text-xs mt-1">
@@ -1902,29 +1942,65 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                 )}
               </div>
             ) : (
-              <div className="flex-1 space-y-1 w-full min-w-0">
+              <div className="flex-1 space-y-2 w-full min-w-0">
+                {!user && (
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">
+                    <Globe size={12} />
+                    Public Editing Enabled
+                  </div>
+                )}
                 {isBackupFetching && (
                   <div className="text-[10px] text-emerald-500 font-medium animate-pulse mb-1">Syncing with backup...</div>
                 )}
-                <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-zinc-900 break-words">
+                <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-zinc-900 break-words leading-[1.1]">
                   {potluck.title}
                 </h1>
-                {potluck.description && <p className="text-zinc-500 text-sm break-words">{potluck.description}</p>}
+                {potluck.description && (
+                  <p className="text-zinc-600 text-base sm:text-lg break-words whitespace-pre-wrap leading-relaxed max-w-3xl">
+                    {potluck.description}
+                  </p>
+                )}
                 {potluck.locationAddress && (
-                  <div className="flex items-center gap-2 text-blue-600 text-sm mt-1">
+                  <div className="flex items-center gap-2 text-blue-600 text-sm mt-2">
                     <MapPin size={14} />
                     {potluck.mapUrl ? (
-                      <a href={potluck.mapUrl} target="_blank" rel="noopener noreferrer" className="hover:underline font-medium truncate max-w-[300px]">
+                      <a href={potluck.mapUrl} target="_blank" rel="noopener noreferrer" className="hover:underline font-medium">
                         {potluck.locationAddress}
                       </a>
                     ) : (
-                      <span className="font-medium truncate max-w-[300px]">{potluck.locationAddress}</span>
+                      <span className="font-medium">{potluck.locationAddress}</span>
                     )}
                   </div>
                 )}
               </div>
             )}
             <div className="flex items-center gap-2 w-full sm:w-auto">
+              {(isOwner || potluck.eventDate) && (
+                <div className="flex flex-col items-center justify-center px-2 py-1.5 bg-emerald-50 border border-emerald-100 rounded-xl min-w-[100px] relative group/tooltip">
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
+                    The scheduled date and time for this event
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Date & Time</span>
+                  {isOwner ? (
+                    <div className="flex items-center gap-1">
+                      <Calendar size={12} className="text-emerald-400" />
+                      <input 
+                        type="datetime-local" 
+                        value={potluck.eventDate || ""}
+                        onChange={(e) => updateEventDate(e.target.value)}
+                        onBlur={() => handleSave()}
+                        className="bg-transparent text-[11px] font-bold text-emerald-700 focus:outline-none py-0.5"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                      <Calendar size={12} className="text-emerald-400" />
+                      {new Date(potluck.eventDate!).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-col items-center justify-center px-1 py-1.5 bg-purple-50 border border-purple-100 rounded-xl min-w-[80px] relative group/tooltip">
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
                   Total actual headcount (sum of guest headcounts)
@@ -1945,23 +2021,6 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center bg-zinc-100 rounded-2xl p-1 border border-black/5">
-            {isOwner ? (
-              <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-xl shadow-sm border border-black/5">
-                <Calendar size={14} className="text-zinc-400" />
-                <input 
-                  type="datetime-local" 
-                  value={potluck.eventDate || ""}
-                  onChange={(e) => updateEventDate(e.target.value)}
-                  onBlur={() => handleSave()}
-                  className="bg-transparent text-xs font-semibold text-zinc-900 focus:outline-none py-1"
-                />
-              </div>
-            ) : potluck.eventDate ? (
-              <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-zinc-600">
-                <Calendar size={14} className="text-zinc-400" />
-                {new Date(potluck.eventDate).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-              </div>
-            ) : null}
             <button 
               onClick={copyUrl}
               className="p-2 bg-white rounded-xl shadow-sm hover:bg-zinc-50 transition-all text-zinc-600"
@@ -1970,6 +2029,25 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
               {copied ? <Check size={18} className="text-emerald-500" /> : <Copy size={18} />}
             </button>
           </div>
+          {isOwner && (
+            <button 
+              onClick={() => {
+                const updated = { ...potluck, showPaidCheckboxes: !potluck.showPaidCheckboxes };
+                setPotluck(updated);
+                potluckRef.current = updated;
+                handleSave();
+              }}
+              className={`px-4 py-2 rounded-2xl transition-all shadow-sm border flex items-center gap-2 font-bold text-sm ${
+                potluck.showPaidCheckboxes 
+                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                : 'bg-zinc-50 text-zinc-500 border-zinc-200 hover:bg-zinc-100'
+              }`}
+              title="Show Paid/Unpaid checkboxes for guests"
+            >
+              <Check size={18} className={potluck.showPaidCheckboxes ? 'text-emerald-500' : 'text-zinc-400'} />
+              Show Paid boxes
+            </button>
+          )}
           {isOwner && (
             <button 
               onClick={() => setIsMapModalOpen(true)}
@@ -2248,19 +2326,19 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
             </div>
           </div>
 
-          {/* Comments */}
+          {/* Suggestions */}
           <div className="bg-zinc-100 border border-black/5 rounded-3xl overflow-hidden shadow-sm flex flex-col">
             <div className="px-6 py-5 border-b border-black/5 bg-zinc-200 flex items-center gap-2 font-bold text-zinc-900">
               <MessageSquare size={20} className="text-blue-500" />
-              Comments
+              Suggestions
             </div>
             <div className="p-6 flex-1 flex flex-col">
               {canEdit ? (
                 <textarea 
-                  value={potluck.comments || ""}
-                  placeholder="Add any comments or discussion here..."
+                  value={potluck.suggestions || ""}
+                  placeholder="Add any suggestions or discussion here..."
                   onChange={(e) => {
-                    const updated = { ...potluck, comments: e.target.value };
+                    const updated = { ...potluck, suggestions: e.target.value };
                     setPotluck(updated);
                     potluckRef.current = updated;
                   }}
@@ -2269,7 +2347,7 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
                 />
               ) : (
                 <div className="flex-1 p-4 bg-white border border-zinc-100 rounded-2xl text-zinc-600 text-sm whitespace-pre-wrap italic">
-                  {potluck.comments || "No comments added."}
+                  {potluck.suggestions || "No suggestions added."}
                 </div>
               )}
             </div>

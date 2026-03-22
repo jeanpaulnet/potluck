@@ -12,12 +12,16 @@ service cloud.firestore {
     //   - title: string (required)
     //   - ownerId: string (required, immutable)
     //   - createdAt: timestamp (required, immutable)
-    //   - guests: list of maps (optional)
+    //   - guests: list of maps (optional, each map can have id, name, headCount, checked)
     //   - dishes: list of maps (optional)
     //   - otherItems: list of maps (optional)
     //   - expenses: list of maps (optional)
     //   - notes: string (optional)
-    //   - comments: string (optional)
+    //   - suggestions: string (optional)
+    //   - dishesLocked: boolean (optional)
+    //   - otherItemsLocked: boolean (optional)
+    //   - guestsLocked: boolean (optional)
+    //   - showPaidCheckboxes: boolean (optional)
     //
     // ===============================================================
 
@@ -42,11 +46,15 @@ service cloud.firestore {
              (!('totalPeople' in data) || data.totalPeople is number) &&
              (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000)) &&
-             (!('comments' in data) || (data.comments is string && data.comments.size() <= 5000)) &&
+             (!('suggestions' in data) || (data.suggestions is string && data.suggestions.size() <= 5000)) &&
              (!('guests' in data) || data.guests is list) &&
              (!('dishes' in data) || data.dishes is list) &&
              (!('otherItems' in data) || data.otherItems is list) &&
-             (!('expenses' in data) || data.expenses is list);
+             (!('expenses' in data) || data.expenses is list) &&
+             (!('dishesLocked' in data) || data.dishesLocked is bool) &&
+             (!('otherItemsLocked' in data) || data.otherItemsLocked is bool) &&
+             (!('guestsLocked' in data) || data.guestsLocked is bool) &&
+             (!('showPaidCheckboxes' in data) || data.showPaidCheckboxes is bool);
     }
 
     match /potlucks/{potluckId} {
