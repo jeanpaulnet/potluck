@@ -1525,7 +1525,8 @@ const PotluckDetail = ({ user }: { user: User | null }) => {
       expenses: potluck.expenses,
       dishesLocked: potluck.dishesLocked,
       otherItemsLocked: potluck.otherItemsLocked,
-      guestsLocked: potluck.guestsLocked
+      guestsLocked: potluck.guestsLocked,
+      showPaidCheckboxes: potluck.showPaidCheckboxes
     };
     
     const dataStr = JSON.stringify(exportData, null, 2);
